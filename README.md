@@ -2,7 +2,7 @@
 
 TiaMcpServer 是一个面向 Siemens TIA Portal 的 Model Context Protocol（MCP）服务。它通过 TIA Portal Openness API 为 AI 客户端提供 PLC、HMI、硬件、程序块、在线诊断和项目文件导入导出能力，也提供一个与 MCP 共用引擎的命令行入口。
 
-项目当前包含两个 TIA Portal 引擎目标：默认项目面向 TIA Portal V21，`TiaMcpServer.V20.csproj` 面向 V20。运行时会检测本机 TIA 版本，并在交付目录中尝试路由到匹配版本的引擎。
+项目当前包含两个 TIA Portal 目标：默认项目面向 TIA Portal V21，`TiaMcpServer.V20.csproj` 面向 V20。运行时会检测本机 TIA 版本，并在交付目录中尝试路由到匹配版本的引擎。
 
 ## 功能概览
 
@@ -15,7 +15,7 @@ TiaMcpServer 是一个面向 Siemens TIA Portal 的 Model Context Protocol（MCP
 - 读取 S7 或 OPC UA 在线值，检查下载准备状态并执行 PLC 下载。
 - 提供 `tia doctor` 环境体检、MCP 客户端配置安装和离线验证套件。
 
-Safety F-block 编写/签名、PLCSIM 仿真和原生 Git/VCI 不属于本项目的能力范围。项目通过导出为可 diff 的文本来支持版本管理。
+
 
 ## 技术栈
 
