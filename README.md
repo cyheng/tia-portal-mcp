@@ -31,69 +31,46 @@ TiaMcpServer 是一个面向 Siemens TIA Portal 的 Model Context Protocol（MCP
 
 ### 使用发布包
 
-正式交付建议使用 GitHub Release 中的 Windows x64 zip 发布包。可以按 TIA 版本分别提供 V20 和 V21 压缩包，也可以在一个发布包中同时提供两个版本的启动文件。每个版本的发布包都应包含 TiaMcpServer.exe、.NET/MCP 依赖 DLL 和对应配置文件；不要只下载单独的 exe，因为 .NET Framework 程序需要同目录中的依赖文件。
+正式交付建议使用 GitHub Release 中的 Windows x64 zip 发布包。发布包必须包含 `TiaMcpServer.exe`、.NET/MCP 依赖 DLL 和配置文件；不要只下载 exe。发布包不包含 Siemens TIA Openness API，实际项目操作仍需要本机安装匹配版本的 TIA Portal、Openness 组件及相关授权。
 
-下载并解压后，先在 PowerShell 中执行：
+解压后先运行环境检查：
 
 ~~~powershell
 cd C:\path\to\TiaMcpServer
 .\TiaMcpServer.exe doctor
 ~~~
 
-如果体检提示当前用户不在 Openness 用户组，使用发布包内置的脚本配置：
+如果当前用户不在 `Siemens TIA Openness` 用户组，可用管理员 PowerShell 执行发布包中的配置脚本；完成后注销并重新登录 Windows：
 
 ~~~powershell
-Start-Process powershell -Verb RunAs
-Set-Location C:\path\to\TiaMcpServer
 .\Configure-TiaOpenness.ps1
 ~~~
 
-脚本执行完成后请注销并重新登录 Windows，然后再次运行 `TiaMcpServer.exe doctor`。也可以只检查而不修改：
+只检查、不修改用户组：
 
 ~~~powershell
 .\Configure-TiaOpenness.ps1 -CheckOnly
 ~~~
 
-如果体检通过，再使用 config --print 查看 MCP 客户端配置，或直接运行 config 自动写入已检测到的客户端配置。Windows 可能会给从浏览器下载的文件加上网络来源标记；遇到程序集无法加载时，可在解压目录执行：
+浏览器下载的文件若带有网络来源标记，遇到程序集无法加载时，可在解压目录执行 `Get-ChildItem -Recurse | Unblock-File`。
 
-~~~powershell
-Get-ChildItem -Recurse | Unblock-File
-~~~
+### 本机开发与离线测试
 
-发布包不包含 Siemens TIA Openness API 程序集。程序会从用户本机安装的 TIA Portal PublicAPI 目录加载这些程序集，因此发布包不能替代 TIA Portal 安装、Openness 组件或相关授权。
-
-### 本机环境
-
-实际连接或修改 TIA 项目需要 Windows x64，并安装以下组件：
-
-1. 与发布包匹配的 TIA Portal V20 或 V21，安装时包含 Openness 组件。
-2. .NET Framework 4.8。
-3. 当前 Windows 用户属于 `Siemens TIA Openness` 本地用户组。
-4. .NET SDK 8（运行离线测试）和可构建 .NET Framework 4.8 项目的开发环境。
-
-只进行离线测试时不需要启动 TIA Portal，也不需要加载 Siemens Openness 程序集。实际项目操作还需要 TIA Portal 的本机安装路径、对应版本的 Openness API 以及项目权限。
+实际连接或修改 TIA 项目需要 Windows x64、.NET Framework 4.8、匹配版本的 TIA Portal（包含 Openness）、当前用户加入 `Siemens TIA Openness` 用户组，以及当前用户可访问目标项目。运行离线测试只需要 .NET SDK 8，不需要启动 TIA Portal 或加载 Openness 程序集。
 
 版本匹配关系如下：
 
 | 发布包 | 目标 TIA Portal | Openness API |
 |---|---|---|
-| V21 | TIA Portal V21 | 本机 PublicAPI\\V21 |
-| V20 | TIA Portal V20 | 本机 PublicAPI\\V20 |
+| V21 | TIA Portal V21 | 本机 `PublicAPI\\V21` |
+| V20 | TIA Portal V20 | 本机 `PublicAPI\\V20` |
 
-如果机器上安装了多个 TIA 版本，程序会尝试自动选择匹配版本；也可以明确指定：
+如果机器上安装了多个 TIA 版本，程序会自动尝试匹配；也可以明确指定：
 
 ~~~powershell
 .\TiaMcpServer.exe --tia-major-version 21
 .\TiaMcpServer.exe --tia-portal-location 'D:\TIA21\Portal V21'
 ~~~
-
-“下载发布包后即可运行”成立的完整条件是：Windows x64、.NET Framework 4.8、匹配版本的 TIA Portal 和 Openness、当前用户已加入 Openness 用户组，以及 TIA 项目本身可被当前用户访问。没有这些条件时，doctor 会报告缺少的环境项，程序不能仅靠发布包自行补齐 TIA 能力。
-
-可以先运行环境检查：
-
-```powershell
-dotnet run --project .\src\TiaMcpServer\TiaMcpServer.csproj -c Release -- doctor
-```
 
 `doctor` 默认只读；`doctor --fix` 会尝试修复 Openness 用户组成员关系，可能触发 UAC。也可以在 MCP 服务启动后使用 `Doctor` 工具。
 

@@ -32,10 +32,14 @@ jobs:
     steps:
       - name: 拉取代码
         uses: actions/checkout@v4
-      - name: 安装 .NET SDK 8
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 8.x
+      - name: 检查本机 .NET SDK
+        shell: pwsh
+        run: |
+          $sdk = dotnet --list-sdks | Where-Object { $_ -match '^8\.' }
+          if (-not $sdk) {
+            throw "本机 Runner 未安装 .NET SDK 8。请先以管理员身份安装 .NET SDK 8，或为 Runner 服务账户配置可访问的 SDK。"
+          }
+          dotnet --info
       - name: 还原依赖
         run: dotnet restore .\src\TiaMcpServer\TiaMcpServer.csproj
       - name: 构建 V21 主服务
