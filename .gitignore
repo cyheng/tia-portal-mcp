@@ -28,6 +28,7 @@ TiaMcpServer.startup.log
 reports/
 artifacts/
 exports/
+release-assets/
 *.bak
 *.tmp
 

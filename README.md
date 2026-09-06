@@ -29,14 +29,65 @@ Safety F-block 编写/签名、PLCSIM 仿真和原生 Git/VCI 不属于本项目
 
 ## 环境要求
 
-实际连接或修改 TIA 项目需要 Windows，并安装以下组件：
+### 使用发布包
 
-1. TIA Portal V20 或 V21，安装时包含 Openness 组件。
+正式交付建议使用 GitHub Release 中的 Windows x64 zip 发布包。可以按 TIA 版本分别提供 V20 和 V21 压缩包，也可以在一个发布包中同时提供两个版本的启动文件。每个版本的发布包都应包含 TiaMcpServer.exe、.NET/MCP 依赖 DLL 和对应配置文件；不要只下载单独的 exe，因为 .NET Framework 程序需要同目录中的依赖文件。
+
+下载并解压后，先在 PowerShell 中执行：
+
+~~~powershell
+cd C:\path\to\TiaMcpServer
+.\TiaMcpServer.exe doctor
+~~~
+
+如果体检提示当前用户不在 Openness 用户组，使用发布包内置的脚本配置：
+
+~~~powershell
+Start-Process powershell -Verb RunAs
+Set-Location C:\path\to\TiaMcpServer
+.\Configure-TiaOpenness.ps1
+~~~
+
+脚本执行完成后请注销并重新登录 Windows，然后再次运行 `TiaMcpServer.exe doctor`。也可以只检查而不修改：
+
+~~~powershell
+.\Configure-TiaOpenness.ps1 -CheckOnly
+~~~
+
+如果体检通过，再使用 config --print 查看 MCP 客户端配置，或直接运行 config 自动写入已检测到的客户端配置。Windows 可能会给从浏览器下载的文件加上网络来源标记；遇到程序集无法加载时，可在解压目录执行：
+
+~~~powershell
+Get-ChildItem -Recurse | Unblock-File
+~~~
+
+发布包不包含 Siemens TIA Openness API 程序集。程序会从用户本机安装的 TIA Portal PublicAPI 目录加载这些程序集，因此发布包不能替代 TIA Portal 安装、Openness 组件或相关授权。
+
+### 本机环境
+
+实际连接或修改 TIA 项目需要 Windows x64，并安装以下组件：
+
+1. 与发布包匹配的 TIA Portal V20 或 V21，安装时包含 Openness 组件。
 2. .NET Framework 4.8。
 3. 当前 Windows 用户属于 `Siemens TIA Openness` 本地用户组。
 4. .NET SDK 8（运行离线测试）和可构建 .NET Framework 4.8 项目的开发环境。
 
 只进行离线测试时不需要启动 TIA Portal，也不需要加载 Siemens Openness 程序集。实际项目操作还需要 TIA Portal 的本机安装路径、对应版本的 Openness API 以及项目权限。
+
+版本匹配关系如下：
+
+| 发布包 | 目标 TIA Portal | Openness API |
+|---|---|---|
+| V21 | TIA Portal V21 | 本机 PublicAPI\\V21 |
+| V20 | TIA Portal V20 | 本机 PublicAPI\\V20 |
+
+如果机器上安装了多个 TIA 版本，程序会尝试自动选择匹配版本；也可以明确指定：
+
+~~~powershell
+.\TiaMcpServer.exe --tia-major-version 21
+.\TiaMcpServer.exe --tia-portal-location 'D:\TIA21\Portal V21'
+~~~
+
+“下载发布包后即可运行”成立的完整条件是：Windows x64、.NET Framework 4.8、匹配版本的 TIA Portal 和 Openness、当前用户已加入 Openness 用户组，以及 TIA 项目本身可被当前用户访问。没有这些条件时，doctor 会报告缺少的环境项，程序不能仅靠发布包自行补齐 TIA 能力。
 
 可以先运行环境检查：
 
@@ -46,23 +97,6 @@ dotnet run --project .\src\TiaMcpServer\TiaMcpServer.csproj -c Release -- doctor
 
 `doctor` 默认只读；`doctor --fix` 会尝试修复 Openness 用户组成员关系，可能触发 UAC。也可以在 MCP 服务启动后使用 `Doctor` 工具。
 
-## 构建
-
-还原并构建默认的 V21 目标：
-
-```powershell
-dotnet restore .\src\TiaMcpServer\TiaMcpServer.csproj
-dotnet build .\src\TiaMcpServer\TiaMcpServer.csproj -c Release
-```
-
-构建 V20 目标：
-
-```powershell
-dotnet restore .\src\TiaMcpServer\TiaMcpServer.V20.csproj
-dotnet build .\src\TiaMcpServer\TiaMcpServer.V20.csproj -c Release
-```
-
-V20 项目文件中的 `TiaPortalLocation` 是开发机示例路径。换到其他机器时，优先通过 `--tia-portal-location` 或 `TiaPortalLocation` 环境变量指定实际安装目录。
 
 ## 启动 MCP 服务
 
@@ -179,16 +213,22 @@ Bootstrap
 
 编写 PLC 代码前使用 `GetAuthoringGuide` 获取经过验证的 SCL/LAD 语法。LAD 推荐使用带 UTF-8 BOM 的 `.s7dcl` 与 `.s7res` 文本导入；不要手写 SimaticML 的 FlgNet 梯形图 XML。SCL 外部源通过 `ImportPlcExternalSource` 和 `GenerateBlocksFromExternalSource` 导入，编码和现有块覆盖规则应以 `GetAuthoringGuide` 返回的说明为准。
 
+## AI Skill
+本项目附带的 [skill/SKILL.md](skill/SKILL.md) 是给 AI 客户端使用的 TIA Portal 操作规范。它说明了 MCP 工具的调用顺序、项目读写规则、SCL/LAD 编码要求、HMI 工作流、在线操作限制以及示例文件的位置。
+
+配置 MCP 客户端时，建议把本文件和 `skill/` 目录一起保留在发布包或项目目录中。完整的 Skill 文件不是 MCP 服务的运行时程序集依赖，但它能让没有内置项目知识的 AI 客户端按照正确流程调用服务；MCP 服务自身也在 `Bootstrap` 响应和 `McpGuides` 中提供了部分同类指引。
+
+## 开发与贡献
+
+开发环境、源码构建、测试命令、GitHub Actions、Self-hosted Runner 和 Release 流程请参阅 [doc/development.md](doc/development.md)。
+
 ## 离线测试与验证
 
-测试项目是独立的 .NET 8 控制台程序，直接运行测试入口，不要用 `dotnet test`，因为它不是 VSTest 工程：
+测试、CI 和 Release 构建说明请参阅 [doc/development.md](doc/development.md)。离线测试不会启动 TIA Portal，也不替代真实项目的编译、保存、在线监控或下载验证。
 
-```powershell
-dotnet restore .\tests\TiaMcpServer.Tests\TiaMcpServer.Tests.csproj
-dotnet run --project .\tests\TiaMcpServer.Tests\TiaMcpServer.Tests.csproj -c Release --no-restore
-```
+## 架构
 
-当前离线测试覆盖模板布局与设计 JSON、`.s7res` 英文资源检查、参数诊断、大响应导出存储、Portal 失败分类和 Unified HMI 脚本语法检查。它们不替代在真实 TIA Portal 项目上的编译、保存、在线监控或下载验证。
+模块职责、启动流程、MCP 工具分层、TIA Openness 依赖边界和测试边界请参阅 [doc/architecture.md](doc/architecture.md)。
 
 ## 目录结构
 
@@ -207,4 +247,3 @@ tests/TiaMcpServer.Tests/      .NET 8 离线检查控制台
 skill/                         MCP 使用说明和 SCL/LAD 示例资产
 .trellis/                      项目开发流程、规范和代理工作区数据
 ```
-
