@@ -19,7 +19,7 @@ jobs:
         with:
           dotnet-version: 8.x
       - name: 还原并运行离线测试
-        shell: pwsh
+        shell: powershell
         run: |
           dotnet restore .\tests\TiaMcpServer.Tests\TiaMcpServer.Tests.csproj
           dotnet run --project .\tests\TiaMcpServer.Tests\TiaMcpServer.Tests.csproj -c Release --no-restore
@@ -45,7 +45,7 @@ jobs:
       - name: 构建 V21 主服务
         run: dotnet build .\src\TiaMcpServer\TiaMcpServer.csproj -c Release --no-restore
       - name: 打包 V21 发布产物
-        shell: pwsh
+        shell: powershell
         run: .\scripts\Package-TiaMcpRelease.ps1 -TiaVersion 21
       - name: 上传 V21 构建产物
         uses: actions/upload-artifact@v4
