@@ -33,7 +33,7 @@ jobs:
       - name: 拉取代码
         uses: actions/checkout@v4
       - name: 检查本机 .NET SDK
-        shell: pwsh
+        shell: powershell
         run: |
           $sdk = dotnet --list-sdks | Where-Object { $_ -match '^8\.' }
           if (-not $sdk) {
