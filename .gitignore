@@ -1,0 +1,46 @@
+# .NET / MSBuild
+**/bin/
+**/obj/
+**/bin-v20/
+**/obj-v20/
+*.user
+*.suo
+*.userosscache
+*.pdb
+*.cache
+
+# Visual Studio
+.vs/
+*.VC.db
+*.VC.opendb
+
+# Test and coverage output
+TestResults/
+coverage/
+*.trx
+
+# Runtime logs and diagnostics
+TiaMcpServer.log
+TiaMcpServer.startup.log
+*.log
+
+# Generated reports and local exports
+reports/
+artifacts/
+exports/
+*.bak
+*.tmp
+
+# Local environment and editor state
+.env
+.env.*
+!.env.example
+.vscode/settings.json
+.idea/
+
+# Trellis local runtime state
+.trellis
+AGENTS.md
+.claude
+**/__pycache__/
+**/*.pyc
