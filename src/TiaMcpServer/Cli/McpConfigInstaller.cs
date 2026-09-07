@@ -10,8 +10,8 @@ namespace TiaMcpServer.Cli
 {
     /// <summary>
     /// One-click MCP registration: writes the `tia-portal` server entry into an AI host's
-    /// config file (Claude Desktop / Claude Code / Cursor / VS Code), pointing at the exe
-    /// that matches the machine's TIA version — no REPLACE_ME, no manual JSON editing.
+    /// config file (Claude Desktop / Claude Code / Cursor / VS Code), pointing at the current
+    /// TIA Portal V21 engine — no REPLACE_ME, no manual JSON editing.
     /// Merges into existing config (keeps other servers and unrelated keys), backs up the
     /// old file first. Shipped inside the engine so the bundle needs no extra tool.
     /// </summary>
@@ -73,27 +73,22 @@ namespace TiaMcpServer.Cli
         /// <summary>Full path of the currently running engine exe.</summary>
         public static string OwnExePath()
         {
-            try { return System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName; }
-            catch { return System.Reflection.Assembly.GetExecutingAssembly().Location; }
+            try
+            {
+                using var process = System.Diagnostics.Process.GetCurrentProcess();
+                var exe = process.MainModule?.FileName;
+                if (exe != null && exe.Length > 0) return exe;
+            }
+            catch { }
+            return System.Reflection.Assembly.GetExecutingAssembly().Location;
         }
 
-        /// <summary>
-        /// The exe the config should point at for <paramref name="tiaMajorVersion"/>: this exe
-        /// when it matches, otherwise the sibling built for that version (falls back to this
-        /// exe — it self-routes at startup anyway, this just avoids the extra hop).
-        /// </summary>
-        public static string ExeForVersion(int tiaMajorVersion)
-        {
-            if (tiaMajorVersion == Siemens.EngineRouter.CompiledTiaMajorVersion) return OwnExePath();
-            return Siemens.EngineRouter.FindSiblingExe(tiaMajorVersion) ?? OwnExePath();
-        }
-
-        public static JsonObject BuildServerEntry(string exePath, int tiaMajorVersion, HostStyle style, bool full = false)
+        public static JsonObject BuildServerEntry(string exePath, HostStyle style, bool full = false)
         {
             var entry = new JsonObject();
             if (style == HostStyle.VsCode) entry["type"] = "stdio";
             entry["command"] = exePath;
-            entry["args"] = new JsonArray("--tia-major-version", tiaMajorVersion.ToString());
+            entry["args"] = new JsonArray();
             // The engine defaults to the ~48-tool lite roster on its own, so the normal config
             // needs no env at all. Only the opt-out is worth writing — and it is an opt-out with
             // consequences: the full roster exceeds what VS Code/Copilot (128) and Windsurf (100) load.
@@ -102,13 +97,13 @@ namespace TiaMcpServer.Cli
         }
 
         /// <summary>Pretty single-server snippet for hosts we don't write automatically.</summary>
-        public static string Snippet(string exePath, int tiaMajorVersion, HostStyle style = HostStyle.McpServers, bool full = false)
+        public static string Snippet(string exePath, HostStyle style = HostStyle.McpServers, bool full = false)
         {
-            if (style == HostStyle.CodexToml) return CodexTomlSection(exePath, tiaMajorVersion, full);
+            if (style == HostStyle.CodexToml) return CodexTomlSection(exePath, full);
             string rootKey = style == HostStyle.VsCode ? "servers" : "mcpServers";
             var root = new JsonObject
             {
-                [rootKey] = new JsonObject { [ServerKey] = BuildServerEntry(exePath, tiaMajorVersion, style, full) }
+                [rootKey] = new JsonObject { [ServerKey] = BuildServerEntry(exePath, style, full) }
             };
             return root.ToJsonString(JsonOpts);
         }
@@ -117,10 +112,13 @@ namespace TiaMcpServer.Cli
         /// Upserts the tia-portal server into one host config. Returns a human-readable status line.
         /// Throws on hard I/O / parse failure so the caller can report it.
         /// </summary>
-        public static string Apply(string configPath, string exePath, int tiaMajorVersion, HostStyle style = HostStyle.McpServers, bool full = false)
+        public static string Apply(string configPath, string exePath, HostStyle style = HostStyle.McpServers, bool full = false)
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(configPath));
-            if (style == HostStyle.CodexToml) return ApplyCodexToml(configPath, exePath, tiaMajorVersion, full);
+            configPath = Path.GetFullPath(configPath);
+            var directory = Path.GetDirectoryName(configPath)
+                ?? throw new ArgumentException("Config path must identify a file.", nameof(configPath));
+            Directory.CreateDirectory(directory);
+            if (style == HostStyle.CodexToml) return ApplyCodexToml(configPath, exePath, full);
 
             JsonObject root;
             if (File.Exists(configPath))
@@ -144,7 +142,7 @@ namespace TiaMcpServer.Cli
             }
 
             bool existed = servers.ContainsKey(ServerKey);
-            servers[ServerKey] = BuildServerEntry(exePath, tiaMajorVersion, style, full);
+            servers[ServerKey] = BuildServerEntry(exePath, style, full);
 
             AtomicWriteAllText(configPath, root.ToJsonString(JsonOpts));
             return (existed ? "updated" : "wrote") + " " + ServerKey + " -> " + configPath;
@@ -191,12 +189,12 @@ namespace TiaMcpServer.Cli
         }
 
         /// <summary>The TOML section Codex needs; standalone so `config --print` can show it too.</summary>
-        private static string CodexTomlSection(string exePath, int tiaMajorVersion, bool full)
+        private static string CodexTomlSection(string exePath, bool full)
         {
             var sb = new StringBuilder();
             sb.AppendLine("[mcp_servers." + ServerKey + "]");
             sb.AppendLine("command = " + TomlString(exePath));
-            sb.AppendLine("args = [\"--tia-major-version\", \"" + tiaMajorVersion + "\"]");
+            sb.AppendLine("args = []");
             // TIA needs far longer to come up than Codex's 10s default; without this Codex kills
             // the server mid-startup and reports it as a crash.
             sb.AppendLine("startup_timeout_sec = 120");
@@ -215,7 +213,7 @@ namespace TiaMcpServer.Cli
         /// one — a [a.b] section is legal anywhere in the file, so everything the user wrote for
         /// other servers survives untouched.
         /// </summary>
-        private static string ApplyCodexToml(string configPath, string exePath, int tiaMajorVersion, bool full)
+        private static string ApplyCodexToml(string configPath, string exePath, bool full)
         {
             string text = "";
             bool existed = false;
@@ -240,7 +238,7 @@ namespace TiaMcpServer.Cli
 
             var sb = new StringBuilder(text);
             if (sb.Length > 0) { sb.AppendLine(); sb.AppendLine(); }
-            sb.Append(CodexTomlSection(exePath, tiaMajorVersion, full));
+            sb.Append(CodexTomlSection(exePath, full));
             AtomicWriteAllText(configPath, sb.ToString());
             return (existed ? "updated" : "wrote") + " " + ServerKey + " -> " + configPath;
         }

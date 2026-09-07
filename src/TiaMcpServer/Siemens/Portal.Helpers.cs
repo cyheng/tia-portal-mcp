@@ -290,9 +290,7 @@ namespace TiaMcpServer.Siemens
                 sb.AppendLine($"{GetTreePrefix(ancestorStates, !hasOtherItems && !hasSoftware)}HmiTarget: {hmiTarget.Name} [HMI Program]");
             }
 
-            //Unified HMI software: dlls will only exist on TIA Portal V19 and newer.
-            if (Engineering.TiaMajorVersion >= 19)
-                TryGetUnifiedSoftware(sb, deviceItem, ancestorStates, softwareContainer, hasSoftware);
+            TryGetUnifiedSoftware(sb, deviceItem, ancestorStates, softwareContainer, hasSoftware);
         }
 
         private bool TryGetUnifiedSoftware(StringBuilder sb, DeviceItem deviceItem, List<bool> ancestorStates, SoftwareContainer? softwareContainer, bool hasSoftware)

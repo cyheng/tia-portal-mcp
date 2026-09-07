@@ -45,6 +45,11 @@ namespace TiaMcpServer.Tests
 
         private static int Main()
         {
+            Console.WriteLine("== V21 CLI, client configuration and project paths ==");
+            V21CliTests.Run(Check);
+            ProjectFilePathTests.Run(Check);
+            V21EngineeringTests.Run(Check);
+
             Console.WriteLine("== 「执行 JSON 检查」不许是复述已知事实的同义反复 ==");
             HmiTemplateLayoutExecutionCheckTests.Run(Check);
 

@@ -37,7 +37,7 @@ namespace TiaMcpServer.Cli
                     case "config": return Config(args);
                     case "doctor": return DoctorCli(args);
                     case "schema": Console.WriteLine(SchemaText); return 0;
-                    case "version": Console.WriteLine("tia " + AssemblyVersion()); return 0;
+                    case "version": Console.WriteLine("tia " + AssemblyVersion() + " (TIA Portal V21)"); return 0;
                     default: PrintUsage(); return 0;
                 }
             }
@@ -172,14 +172,10 @@ namespace TiaMcpServer.Cli
         }
 
         // One-click MCP registration into AI hosts (Claude Desktop / Claude Code / Cursor /
-        // VS Code), no manual JSON editing. Self-discovers everything: own exe path, TIA
-        // version from the registry, and the version-matching sibling exe.
+        // VS Code), pointing each host at the current TIA Portal V21 engine.
         private static int Config(string[] args)
         {
-            int ver = int.TryParse(Opt(args, "--tia-major-version"), out var v) && v > 0
-                ? v
-                : (TiaMcpServer.Siemens.Engineering.DetectTiaMajorVersion() ?? 21);
-            string exe = McpConfigInstaller.ExeForVersion(ver);
+            string exe = McpConfigInstaller.OwnExePath();
             // The engine itself now defaults to the ~48-tool lite roster, so a plain config is
             // already the right one and pins no profile. --full is the opt-out; --lite is still
             // accepted and still yields lite, since lite is the default.
@@ -188,15 +184,15 @@ namespace TiaMcpServer.Cli
             if (Flag(args, "--print"))
             {
                 Console.WriteLine("Claude Desktop / Claude Code / Cursor (mcpServers):");
-                Console.WriteLine(McpConfigInstaller.Snippet(exe, ver, McpConfigInstaller.HostStyle.McpServers, full));
+                Console.WriteLine(McpConfigInstaller.Snippet(exe, McpConfigInstaller.HostStyle.McpServers, full));
                 Console.WriteLine();
                 Console.WriteLine("VS Code — %APPDATA%\\Code\\User\\mcp.json (servers):");
-                Console.WriteLine(McpConfigInstaller.Snippet(exe, ver, McpConfigInstaller.HostStyle.VsCode, full));
+                Console.WriteLine(McpConfigInstaller.Snippet(exe, McpConfigInstaller.HostStyle.VsCode, full));
                 Console.WriteLine();
                 Console.WriteLine("Gemini CLI / Windsurf / Cline use the same mcpServers shape as the first snippet.");
                 Console.WriteLine();
                 Console.WriteLine("Codex — %USERPROFILE%\\.codex\\config.toml (TOML):");
-                Console.WriteLine(McpConfigInstaller.Snippet(exe, ver, McpConfigInstaller.HostStyle.CodexToml, full));
+                Console.WriteLine(McpConfigInstaller.Snippet(exe, McpConfigInstaller.HostStyle.CodexToml, full));
                 return 0;
             }
 
@@ -217,12 +213,12 @@ namespace TiaMcpServer.Cli
                     continue;
                 }
 
-                try { Console.WriteLine("  [ok]     " + h.Name + ": " + McpConfigInstaller.Apply(h.ConfigPath, exe, ver, h.Style, full)); done++; }
+                try { Console.WriteLine("  [ok]     " + h.Name + ": " + McpConfigInstaller.Apply(h.ConfigPath, exe, h.Style, full)); done++; }
                 catch (Exception ex) { Console.Error.WriteLine("  [failed] " + h.Name + ": " + ex.Message); failed++; }
             }
 
             Console.WriteLine(done > 0
-                ? $"Configured {done} host(s) for TIA V{ver} -> {exe}{(full ? " [full profile: all tools — exceeds VS Code/Copilot's 128 and Windsurf's 100 tool cap]" : " [default lite profile: ~48 core tools; the rest stay reachable via FindTools/CallTool]")}. Restart the AI client to load it. (original config backed up as *.bak)"
+                ? $"Configured {done} host(s) for TIA Portal V21 -> {exe}{(full ? " [full profile: all tools — exceeds VS Code/Copilot's 128 and Windsurf's 100 tool cap]" : " [default lite profile: ~48 core tools; the rest stay reachable via FindTools/CallTool]")}. Restart the AI client to load it. (original config backed up as *.bak)"
                 : "No host config written. Targeted host not found, or use `config --print` to copy the snippet manually.");
             Console.WriteLine("For other hosts, run `config --print` and paste the matching snippet.");
             return failed > 0 && done == 0 ? 1 : 0;
@@ -249,10 +245,7 @@ namespace TiaMcpServer.Cli
                     Console.WriteLine($"         {(zh ? "修法" : "fix")}: {fixHint}");
             }
 
-            var detected = TiaMcpServer.Siemens.Engineering.DetectTiaMajorVersion();
-            int compiled = TiaMcpServer.Siemens.EngineRouter.CompiledTiaMajorVersion;
-
-            foreach (var c in Runtime.EnvironmentDoctor.Run(compiled, detected))
+            foreach (var c in Runtime.EnvironmentDoctor.Run())
             {
                 Line(c.Ok, c.Name(zh), c.Detail(zh), c.Fix(zh));
                 if (c.Gating) ready &= c.Ok;
@@ -365,31 +358,31 @@ namespace TiaMcpServer.Cli
         private static void PrintUsage() => Console.WriteLine(UsageText);
 
         private const string UsageText =
-@"tia — drive TIA Portal from a single spec. (Same engine as the MCP server.)
+@"tia — drive TIA Portal V21 from a single spec. (Same engine as the MCP server.)
 
 USAGE
   tia gen      <spec.yaml|json> [--dry-run] [--json]      Build a project from a spec
   tia patch    <spec.yaml|json> [--dry-run] [--json] [--no-overwrite]
                                                           Upsert spec into an EXISTING project (spec.projectPath)
-  tia compile  <project.apXX> [--plc NAME] [--json]       Compile + diagnose a PLC
-  tia describe <project.apXX> [--plc NAME] [--json]       Print project tree (and PLC blocks)
-  tia export   <project.apXX> --plc NAME --out DIR --block PATH [--scl]
-  tia import   <project.apXX> --plc NAME --from DIR [--no-overwrite]
+  tia compile  <project.ap21> [--plc NAME] [--json]       Compile + diagnose a PLC
+  tia describe <project.ap21> [--plc NAME] [--json]       Print project tree (and PLC blocks)
+  tia export   <project.ap21> --plc NAME --out DIR --block PATH [--scl]
+  tia import   <project.ap21> --plc NAME --from DIR [--no-overwrite]
   tia prewarm  [--stop]                                   Hold a headless instance open (~1s attach after)
   tia config   [--host claude|claude-code|cursor|vscode|codex|gemini|windsurf|cline] [--print] [--full]
                                                           One-click: register this MCP into all detected AI hosts
-                                                          (Claude Desktop / Claude Code / Cursor / VS Code); auto-picks
-                                                          the exe matching your installed TIA version.
+                                                          (Claude Desktop / Claude Code / Cursor / VS Code), using
+                                                          the current TIA Portal V21 engine.
                                                           Default lists ~48 core tools; the rest stay reachable
                                                           on demand via FindTools + CallTool.
                                                           --full = list every tool instead (rejected by VS Code/
                                                           Copilot above 128 and Windsurf above 100)
-  tia doctor   [--fix]                                    Environment check: TIA install, exe/version match, Openness
+  tia doctor   [--fix]                                    Environment check: TIA Portal V21, Openness
                                                           group, AI host configs. --fix auto-adds the Openness group
   tia schema                                              Print the spec field reference
   tia version
 
-GLOBAL FLAGS (also accepted): --with-ui, --tia-portal-location PATH, --tia-major-version N
+GLOBAL FLAGS (also accepted): --with-ui, --tia-portal-location PATH, --profile lite|full
 Exit code: 0 = success, 1 = completed with failed steps, 2 = error.";
 
         private const string SchemaText =
@@ -397,7 +390,7 @@ Exit code: 0 = success, 1 = completed with failed steps, 2 = error.";
 Used by `tia gen` (build from zero) and `tia patch` (upsert into existing).
 
   projectName     string  gen: required. Project name.
-  projectPath     string  patch: required. Path to the .apXX to open.
+  projectPath     string  patch: required. Path to the .ap21 to open.
   directoryPath   string  gen: output folder (default %TEMP%).
   plcName         string  default PLC_1.
   plcFamily       string  default S7-1500.

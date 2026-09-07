@@ -187,10 +187,10 @@ Use the ExportTypes tool with:
 - preservePath: {preservePath.ToString().ToLower()}";
         }
 
-        [McpServerPrompt(Name = "ExportBlocksAsDocuments"), Description("Export blocks as documents (.s7dcl/.s7res format, V20+)")]
+        [McpServerPrompt(Name = "ExportBlocksAsDocuments"), Description("Export TIA Portal V21 blocks as documents (.s7dcl/.s7res format)")]
         public static string ExportBlocksAsDocuments(string softwarePath, string exportPath, string regexName, bool preservePath)
         {
-            return $@"Export blocks as SIMATIC SD documents (.s7dcl/.s7res). Requires TIA Portal V20+.
+            return $@"Export blocks as SIMATIC SD documents (.s7dcl/.s7res) through TIA Portal V21.
 
 Note: importing LAD blocks requires the .s7res to contain en-US tags for all items.
 
@@ -230,13 +230,13 @@ Use the ExportBlocksAsDocuments tool with:
             => ExportBlocksAsDocuments(softwarePath, exportPath, "", true);
 
         // ──────────────────────────────────────────────────────────────────────
-        // Import from documents (V20+)
+        // Import from SIMATIC SD documents.
         // ──────────────────────────────────────────────────────────────────────
 
-        [McpServerPrompt(Name = "ImportFromDocuments"), Description("Import a single block from SIMATIC SD documents (.s7dcl/.s7res, V20+)")]
+        [McpServerPrompt(Name = "ImportFromDocuments"), Description("Import a single TIA Portal V21 block from SIMATIC SD documents (.s7dcl/.s7res)")]
         public static string ImportFromDocuments(string softwarePath, string groupPath, string importPath, string fileNameWithoutExtension, string importOption)
         {
-            return $@"Import one program block from SIMATIC SD documents (requires TIA Portal V20+).
+            return $@"Import one program block from SIMATIC SD documents through TIA Portal V21.
 
 Note: importing LAD blocks requires the .s7res to contain en-US tags.
 
@@ -248,10 +248,10 @@ Use the ImportFromDocuments tool with:
 - importOption: {importOption}";
         }
 
-        [McpServerPrompt(Name = "ImportBlocksFromDocuments"), Description("Import blocks from SIMATIC SD documents (.s7dcl/.s7res, V20+)")]
+        [McpServerPrompt(Name = "ImportBlocksFromDocuments"), Description("Import TIA Portal V21 blocks from SIMATIC SD documents (.s7dcl/.s7res)")]
         public static string ImportBlocksFromDocuments(string softwarePath, string groupPath, string importPath, string regexName, string importOption)
         {
-            return $@"Import multiple program blocks from SIMATIC SD documents (requires TIA Portal V20+).
+            return $@"Import multiple program blocks from SIMATIC SD documents through TIA Portal V21.
 
 Note: importing LAD blocks requires the .s7res to contain en-US tags.
 

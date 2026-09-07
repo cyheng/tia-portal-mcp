@@ -46,7 +46,7 @@ jobs:
         run: dotnet build .\src\TiaMcpServer\TiaMcpServer.csproj -c Release --no-restore
       - name: 打包 V21 发布产物
         shell: powershell
-        run: .\scripts\Package-TiaMcpRelease.ps1 -TiaVersion 21
+        run: .\scripts\Package-TiaMcpRelease.ps1
       - name: 上传 V21 构建产物
         uses: actions/upload-artifact@v4
         with:

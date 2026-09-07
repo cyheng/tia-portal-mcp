@@ -42,14 +42,24 @@ namespace TiaMcpServer
                     LogDiag("WARN: failed to set Console UTF-8 encoding: " + encEx.Message);
                 }
 
+                CliOptions options;
+                try
+                {
+                    options = CliOptions.ParseArgs(args);
+                }
+                catch (ArgumentException ex)
+                {
+                    Console.Error.WriteLine("ERROR: " + ex.Message);
+                    Environment.ExitCode = 2;
+                    return;
+                }
+
                 AppDomain.CurrentDomain.AssemblyResolve += ResolveFromBaseDir;
 
                 LogDiag($"=== {DateTime.Now:O} PID={System.Diagnostics.Process.GetCurrentProcess().Id} ===");
                 LogDiag($"BaseDir: {AppContext.BaseDirectory}");
                 LogDiag($"Exe: {Assembly.GetExecutingAssembly().Location}");
                 LogDiag($"Args: {string.Join(" ", args)}");
-
-                var options = CliOptions.ParseArgs(args);
 
                 // Default logging to stderr (mode 1) when the user doesn't pass --logging,
                 // so errors are visible out of the box. Users can opt out with --logging 0
@@ -60,48 +70,14 @@ namespace TiaMcpServer
                     LogDiag("Logging defaulted to stderr (--logging 1). Pass --logging 0 to silence, 2 for Debug output, 3 for EventLog.");
                 }
 
-                // Wire CLI --tia-portal-location into the assembly resolver. Must happen BEFORE
-                // DetectTiaMajorVersion so the override participates in version detection.
+                // Wire the explicit V21 install directory into the assembly resolver.
                 if (!string.IsNullOrWhiteSpace(options.TiaPortalLocation))
                 {
                     Engineering.TiaPortalLocationOverride = options.TiaPortalLocation;
                     LogDiag($"TIA Portal location (from CLI): {options.TiaPortalLocation}");
                 }
 
-                int tiaMajorVersion;
-                bool tiaVersionReliable; // explicit CLI arg or a positive registry detection (not the blind fallback)
-                if (options.TiaMajorVersion.HasValue)
-                {
-                    tiaMajorVersion = options.TiaMajorVersion.Value;
-                    tiaVersionReliable = true;
-                    LogDiag($"TIA major version (from CLI): {tiaMajorVersion}");
-                }
-                else
-                {
-                    var detected = Engineering.DetectTiaMajorVersion();
-                    tiaMajorVersion = detected ?? 21;
-                    tiaVersionReliable = detected.HasValue;
-                    LogDiag(detected.HasValue
-                        ? $"TIA major version (auto-detected): {tiaMajorVersion}"
-                        : $"TIA major version (default fallback): {tiaMajorVersion} — install not detected, specify --tia-major-version if wrong");
-                }
-                Engineering.TiaMajorVersion = tiaMajorVersion;
-
-                // Version-aware self-routing (issue #8): this exe's IL is bound to one TIA major
-                // version; when the machine actually wants a different one, re-exec the sibling
-                // exe built for it instead of crashing at the first Siemens assembly load.
-                // stdio is inherited, so MCP hosts and CLI callers are unaffected.
-                if (tiaVersionReliable && tiaMajorVersion != EngineRouter.CompiledTiaMajorVersion)
-                {
-                    if (EngineRouter.TryRedirect(tiaMajorVersion, args, LogDiag, out int routedExit))
-                    {
-                        Environment.Exit(routedExit);
-                        return;
-                    }
-                    LogDiag($"WARN: TIA V{tiaMajorVersion} requested but this exe is built for V{EngineRouter.CompiledTiaMajorVersion} " +
-                            $"and no V{tiaMajorVersion} sibling exe was found next to it — Siemens assembly load will likely fail. " +
-                            $"Run the V{tiaMajorVersion} exe from the bundle, or pass --tia-major-version {EngineRouter.CompiledTiaMajorVersion} to force.");
-                }
+                LogDiag("TIA Portal target: V21");
 
                 // 静态自检也会枚举 MCP 工具特性，方法签名里引用的 Siemens 程序集需要先能被解析。
                 // 这里只注册程序集解析器，不初始化 Openness，也不连接或打开 TIA 项目。
@@ -299,33 +275,30 @@ namespace TiaMcpServer
                     return;
                 }
 
-                if (Engineering.TiaMajorVersion >= 20)
+                try
                 {
-                    try
+                    LogDiag("Initializing TIA Openness API for V21");
+                    Openness.Initialize();
+                    LogDiag("TIA Openness API initialized");
+                }
+                catch (FileNotFoundException ex)
+                {
+                    LogDiag("Openness.Initialize failed: FileNotFoundException");
+                    LogDiag("FIX: TIA Portal V21 (with the Openness option) was not found on this machine. Install it, or set --tia-portal-location or the TiaPortalLocation environment variable to its install path. Run `tia.cmd doctor` for a full check.");
+                    LogDiag("修复：本机未找到 TIA Portal V21（含 Openness 组件）。请安装 V21，或用 --tia-portal-location、TiaPortalLocation 环境变量指定安装目录。可运行 tia.cmd doctor 一键体检。");
+                    LogDiag($"FileName: {ex.FileName}");
+                    if (!string.IsNullOrWhiteSpace(ex.FusionLog))
                     {
-                        LogDiag($"Initializing TIA Openness API for V{Engineering.TiaMajorVersion}");
-                        Openness.Initialize(Engineering.TiaMajorVersion);
-                        LogDiag("TIA Openness API initialized");
+                        LogDiag("FusionLog:");
+                        LogDiag(ex.FusionLog);
                     }
-                    catch (FileNotFoundException ex)
-                    {
-                        LogDiag("Openness.Initialize failed: FileNotFoundException");
-                        LogDiag($"FIX: TIA Portal V{Engineering.TiaMajorVersion} (with the Openness option) was not found on this machine. Install it, or pass --tia-major-version <n> matching the installed version, or set the TiaPortalLocation environment variable to the install path. Run `tia.cmd doctor` for a full check.");
-                        LogDiag($"修复：本机未找到 TIA Portal V{Engineering.TiaMajorVersion}（含 Openness 组件）。请安装对应版本，或用 --tia-major-version 指定已装版本，或设置 TiaPortalLocation 环境变量指向安装目录。可运行 tia.cmd doctor 一键体检。");
-                        LogDiag($"FileName: {ex.FileName}");
-                        if (!string.IsNullOrWhiteSpace(ex.FusionLog))
-                        {
-                            LogDiag("FusionLog:");
-                            LogDiag(ex.FusionLog);
-                        }
-                        throw;
-                    }
-                    catch (BadImageFormatException ex)
-                    {
-                        LogDiag("Openness.Initialize failed: BadImageFormatException (x86/x64 mismatch or corrupt dll)");
-                        LogDiag(ex.ToString());
-                        throw;
-                    }
+                    throw;
+                }
+                catch (BadImageFormatException ex)
+                {
+                    LogDiag("Openness.Initialize failed: BadImageFormatException (x86/x64 mismatch or corrupt dll)");
+                    LogDiag(ex.ToString());
+                    throw;
                 }
 
                 // Ensure user is in user group 'Siemens TIA Openness'.

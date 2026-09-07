@@ -206,7 +206,7 @@ namespace TiaMcpServer.Siemens
 
         // name (normalized) -> (raw name, absolute LogicalAddress, TIA DataTypeName) for
         // every PLC tag in the software's tag tables (recursing user group folders).
-        // Read-only reflection; tolerant of V20/V21 shape differences.
+        // Read-only reflection over the PLC tag-table groups.
         private Dictionary<string, (string name, string address, string dataType)> BuildPlcTagAddressMap(object plc)
         {
             var map = new Dictionary<string, (string name, string address, string dataType)>(StringComparer.Ordinal);

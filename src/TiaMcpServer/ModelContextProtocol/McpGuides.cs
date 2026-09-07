@@ -10,8 +10,7 @@ namespace TiaMcpServer.ModelContextProtocol
     ///      most hosts inject it into the model's system context automatically.
     ///   2. <see cref="Topic(string)"/> — on-demand cheat sheets via the GetAuthoringGuide
     ///      tool, for syntax details too large for the handshake.
-    /// All facts here are verified against live TIA V20/V21 machines; do not add
-    /// speculative syntax.
+    /// Authoring guidance follows syntax verified with TIA Portal V21.
     /// </summary>
     public static class McpGuides
     {

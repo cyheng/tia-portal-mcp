@@ -127,16 +127,12 @@ namespace TiaMcpServer.Siemens
 
         public static bool IsLocalSessionFile(string sessionPath)
         {
-            // Check if the path ends with '.als\d+' using regex
-            var regex = new Regex(@"\.als\d+$", RegexOptions.IgnoreCase);
-            return regex.IsMatch(sessionPath);
+            return ProjectFilePath.IsSession(sessionPath);
         }
 
         public static bool IsLocalProjectFile(string projectPath)
         {
-            // Check if the path ends with '.ap\d+' using regex
-            var regex = new Regex(@"\.ap\d+$", RegexOptions.IgnoreCase);
-            return regex.IsMatch(projectPath);
+            return ProjectFilePath.IsProject(projectPath);
         }
 
         public void Dispose()
@@ -191,9 +187,7 @@ namespace TiaMcpServer.Siemens
         // 判断一个 attach 失败是不是"白名单/授权被拒"（Openness 用户组、授权白名单）。
         // 这类拒绝跟具体是哪个 Portal 进程无关——换下一个候选、乃至自己新起一个实例，
         // 结果都一样被拒。用类型名字符串匹配而不是 catch 具体类型：
-        // EngineeringSecurityException 来自运行时解析的 Openness 程序集（V20/V21 两套 csproj），
-        // 不引入编译期依赖更稳。沿 InnerException 链走，因为它常被
-        // EngineeringTargetInvocationException 之类包一层。
+        // 沿 InnerException 链识别由运行时 Openness 调用包装的 EngineeringSecurityException。
         private static bool IsSecurityRefusal(Exception? ex)
         {
             var e = ex;
@@ -662,6 +656,18 @@ namespace TiaMcpServer.Siemens
 
         public bool OpenProject(string projectPath, bool closeForeignProject = false)
         {
+            try
+            {
+                projectPath = ProjectFilePath.Resolve(projectPath);
+                if (!ProjectFilePath.IsProject(projectPath))
+                    throw new ArgumentException("Use a TIA Portal V21 .ap21 project file.", nameof(projectPath));
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is IOException || ex is UnauthorizedAccessException)
+            {
+                LastConnectError = ex.Message;
+                return false;
+            }
+
             _logger?.LogInformation($"Opening project: {projectPath}");
 
             var foreign = ForeignOpenProjectName();
@@ -698,18 +704,6 @@ namespace TiaMcpServer.Siemens
             try
             {
                 LastConnectError = null;
-
-                if (string.IsNullOrWhiteSpace(projectPath))
-                {
-                    LastConnectError = "projectPath is empty";
-                    return false;
-                }
-
-                if (!File.Exists(projectPath))
-                {
-                    LastConnectError = $"Project file not found: {projectPath}";
-                    return false;
-                }
 
                 var projects = GetProjects();
                 var projectName = Path.GetFileNameWithoutExtension(projectPath);
@@ -929,6 +923,18 @@ namespace TiaMcpServer.Siemens
 
         public bool OpenSession(string localSessionPath)
         {
+            try
+            {
+                localSessionPath = ProjectFilePath.Resolve(localSessionPath);
+                if (!ProjectFilePath.IsSession(localSessionPath))
+                    throw new ArgumentException("Use a TIA Portal V21 .als21 session file.", nameof(localSessionPath));
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is IOException || ex is UnauthorizedAccessException)
+            {
+                LastConnectError = ex.Message;
+                return false;
+            }
+
             _logger?.LogInformation($"Opening session: {localSessionPath}");
 
             if (IsPortalNull())

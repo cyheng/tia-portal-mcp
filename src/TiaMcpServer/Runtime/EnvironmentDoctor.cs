@@ -9,20 +9,8 @@ using System.Reflection;
 namespace TiaMcpServer.Runtime
 {
     /// <summary>
-    /// The environment checks behind both `tia doctor` (CLI) and the Doctor MCP tool.
-    ///
-    /// It lives in one place because the two used to be written separately and had drifted: each
-    /// only asked the registry whether TIA existed, checked the Openness group, and stopped. The
-    /// three failures that actually strand a first-time user on a fresh machine were checked by
-    /// neither:
-    ///   * Openness was never installed, so Siemens.Engineering cannot be resolved (the registry
-    ///     still says TIA is there, so both doctors reported OK and the engine died on first call);
-    ///   * the delivery was unzipped straight from a download, so Windows marked every DLL with a
-    ///     zone identifier and .NET refuses to load them;
-    ///   * .NET Framework 4.8 is missing, which is prerequisite #1 in the README.
-    ///
-    /// Each check carries both languages: the CLI is invoked from Chinese .bat files by Chinese
-    /// engineers, while the MCP tool's output is consumed by a model alongside English tool text.
+    /// Shared CLI and MCP checks for TIA Portal V21, its Openness API, .NET Framework 4.8,
+    /// and Windows file blocking. Each check supplies English and Chinese diagnostics.
     /// </summary>
     public static class EnvironmentDoctor
     {
@@ -44,68 +32,46 @@ namespace TiaMcpServer.Runtime
         public static bool PreferChinese =>
             CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.Equals("zh", StringComparison.OrdinalIgnoreCase);
 
-        /// <summary>The supported TIA majors. Messages must not promise more than the product delivers.</summary>
-        private const string SupportedVersions = "V20 / V21";
-
-        public static List<Check> Run(int compiledTiaMajorVersion, int? detectedTiaMajorVersion)
+        public static List<Check> Run()
         {
-            var checks = new List<Check>
+            var probe = Siemens.Engineering.ProbeOpennessAssemblies();
+            return new List<Check>
             {
-                TiaInstall(detectedTiaMajorVersion),
-                OpennessAssemblies(),
-                EngineVersionMatch(compiledTiaMajorVersion, detectedTiaMajorVersion),
+                TiaInstall(probe.InstallPath),
+                OpennessAssemblies(probe),
                 DotNetFramework48(),
                 FilesNotBlocked(),
             };
-            return checks;
         }
 
-        private static Check TiaInstall(int? detected)
+        private static Check TiaInstall(string? installPath)
         {
-            bool ok = detected != null;
+            bool ok = installPath != null && Directory.Exists(Path.Combine(installPath, "PublicAPI", "V21"));
             return new Check
             {
                 Id = "tia-install",
                 Ok = ok,
-                NameEn = "TIA Portal installation",
-                NameZh = "TIA Portal 安装",
-                DetailEn = ok ? $"detected V{detected}" : "no TIA Portal detected (registry / TiaPortalLocation / default folder)",
-                DetailZh = ok ? $"检测到 V{detected}" : "未检测到 TIA Portal（注册表 / TiaPortalLocation 环境变量 / 默认安装目录都查过了）",
-                FixEn = ok ? null : $"Install TIA Portal {SupportedVersions} including the Openness option, or set the TiaPortalLocation environment variable to the install folder (e.g. D:\\TIA21\\Portal V21).",
-                FixZh = ok ? null : $"安装 TIA Portal {SupportedVersions}（安装时要勾选 Openness 组件），或把用户环境变量 TiaPortalLocation 指向安装根目录（例如 D:\\TIA21\\Portal V21）。",
+                NameEn = "TIA Portal V21 installation",
+                NameZh = "TIA Portal V21 安装",
+                DetailEn = ok ? "V21 installation: " + installPath : "TIA Portal V21 installation is required.",
+                DetailZh = ok ? "V21 安装目录：" + installPath : "需要安装 TIA Portal V21。",
+                FixEn = ok ? null : "Install TIA Portal V21 with Openness, or set --tia-portal-location / TiaPortalLocation to its installation root (e.g. D:\\TIA21\\Portal V21).",
+                FixZh = ok ? null : "安装 TIA Portal V21 并勾选 Openness 组件，或用 --tia-portal-location / TiaPortalLocation 指定安装根目录（例如 D:\\TIA21\\Portal V21）。",
             };
         }
 
-        private static Check OpennessAssemblies()
+        private static Check OpennessAssemblies((bool Ok, string? InstallPath, string? ResolvedDll, string? Problem) probe)
         {
-            var probe = Siemens.Engineering.ProbeOpennessAssemblies();
             return new Check
             {
                 Id = "openness-dll",
                 Ok = probe.Ok,
-                NameEn = "Openness API assemblies",
-                NameZh = "Openness 编程接口 DLL",
+                NameEn = "V21 Openness API assemblies",
+                NameZh = "V21 Openness 编程接口 DLL",
                 DetailEn = probe.Ok ? "resolvable: " + probe.ResolvedDll : (probe.Problem ?? "not resolvable"),
                 DetailZh = probe.Ok ? "可解析：" + probe.ResolvedDll : ("无法解析——" + (probe.Problem ?? "原因未知")),
-                FixEn = probe.Ok ? null : "TIA can be installed without Openness. Re-run the TIA Portal setup and add the 'Openness' component, then confirm Siemens.Engineering.dll (V20) or Siemens.Engineering.Base.dll (V21) exists under <install>\\PublicAPI\\V<version>\\.",
-                FixZh = probe.Ok ? null : "装了 TIA 不等于装了 Openness。重新运行 TIA Portal 安装程序补装『Openness』组件，然后确认 <安装目录>\\PublicAPI\\V<版本>\\ 下存在 Siemens.Engineering.dll（V20）或 Siemens.Engineering.Base.dll（V21）。",
-            };
-        }
-
-        private static Check EngineVersionMatch(int compiled, int? detected)
-        {
-            bool ok = detected == null || detected.Value == compiled
-                      || Siemens.EngineRouter.FindSiblingExe(detected.Value) != null;
-            return new Check
-            {
-                Id = "engine-version",
-                Ok = ok,
-                NameEn = "Engine exe / TIA version",
-                NameZh = "引擎 exe 与 TIA 版本匹配",
-                DetailEn = $"exe built for V{compiled}" + (detected != null ? $", machine has V{detected}" : ", machine version unknown"),
-                DetailZh = $"该 exe 为 V{compiled} 构建" + (detected != null ? $"，本机装的是 V{detected}" : "，本机版本未知"),
-                FixEn = ok || detected == null ? null : $"Use runtime\\v{detected}\\TiaMcpServer.exe from the delivery (both versions ship), or keep this one and pass --tia-major-version {compiled}.",
-                FixZh = ok || detected == null ? null : $"改用交付包里的 runtime\\v{detected}\\TiaMcpServer.exe（两个版本都随包提供），或继续用当前这个并加参数 --tia-major-version {compiled}。",
+                FixEn = probe.Ok ? null : "Run the TIA Portal V21 setup and install the Openness component. Confirm Siemens.Engineering.Base.dll exists under <install>\\PublicAPI\\V21\\net48.",
+                FixZh = probe.Ok ? null : "运行 TIA Portal V21 安装程序并安装 Openness 组件，确认 <安装目录>\\PublicAPI\\V21\\net48 下存在 Siemens.Engineering.Base.dll。",
             };
         }
 

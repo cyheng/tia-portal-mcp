@@ -1,8 +1,8 @@
 # .NET / MSBuild
 **/bin/
 **/obj/
-**/bin-v20/
-**/obj-v20/
+**/bin-*/
+**/obj-*/
 *.user
 *.suo
 *.userosscache

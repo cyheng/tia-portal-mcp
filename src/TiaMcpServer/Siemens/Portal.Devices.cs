@@ -138,7 +138,7 @@ namespace TiaMcpServer.Siemens
         public Device AddDevice(string orderNumber, string version, string deviceName)
         {
             _logger?.LogInformation($"Adding device: {deviceName}, OrderNumber={orderNumber}, Version={version}");
-            if (IsProjectNull()) throw new PortalException(PortalErrorCode.InvalidState, "No project is open. If a project is already open in the TIA Portal UI, call AttachToOpenProject(projectName); otherwise call OpenProject(path) for a local .apXX project, or CreateProject to start a new one. (Connect is attempted automatically.)");
+            if (IsProjectNull()) throw new PortalException(PortalErrorCode.InvalidState, "No project is open. If a project is already open in the TIA Portal UI, call AttachToOpenProject(projectName); otherwise call OpenProject(path) for a local .ap21 project, or CreateProject to start a new one. (Connect is attempted automatically.)");
 
             string? lastVariantError = null;
             try
@@ -1790,20 +1790,8 @@ namespace TiaMcpServer.Siemens
             sb.AppendLine("DeepScan: " + deepScan);
             if (plcNode.Node == null || hmiNode.Node == null) return sb.ToString();
 
-#if TIA_V20
-            // V20 does not expose Siemens.Engineering.HW.CommunicationConnections. The hardware-level
-            // HMI connection helper degrades to a no-op (caller still gets the diagnostic prefix).
-            var connectionCompositionType = Type.GetType("Siemens.Engineering.HW.CommunicationConnections.ConnectionComposition, Siemens.Engineering");
-            var hmiConnectionType = Type.GetType("Siemens.Engineering.HW.CommunicationConnections.HmiConnection, Siemens.Engineering");
-            if (connectionCompositionType == null || hmiConnectionType == null)
-            {
-                sb.AppendLine(Capability.Describe(TiaFeature.HardwareHmiConnection) + " Skipping hardware HMI connection creation.");
-                return sb.ToString();
-            }
-#else
             var connectionCompositionType = typeof(global::Siemens.Engineering.HW.CommunicationConnections.ConnectionComposition);
             var hmiConnectionType = typeof(global::Siemens.Engineering.HW.CommunicationConnections.HmiConnection);
-#endif
             var candidates = deepScan
                 ? BuildHardwareHmiConnectionCandidates(plcNode, hmiNode).ToList()
                 : BuildDirectHardwareHmiConnectionCandidates(plcNode, hmiNode).ToList();
@@ -1964,19 +1952,12 @@ namespace TiaMcpServer.Siemens
                 ? BuildHardwareHmiConnectionCandidates(plcNode, hmiNode).ToList()
                 : BuildDirectHardwareHmiConnectionCandidates(plcNode, hmiNode).ToList();
 
-#if TIA_V20
-            var commConnT = Type.GetType("Siemens.Engineering.HW.CommunicationConnections.ConnectionComposition, Siemens.Engineering");
-            var serviceTypes = commConnT != null
-                ? new[] { commConnT, typeof(NetworkInterface), typeof(NetworkPort) }
-                : new[] { typeof(NetworkInterface), typeof(NetworkPort) };
-#else
             var serviceTypes = new[]
             {
                 typeof(global::Siemens.Engineering.HW.CommunicationConnections.ConnectionComposition),
                 typeof(NetworkInterface),
                 typeof(NetworkPort)
             };
-#endif
 
             lines.Add("DeepScan: " + deepScan);
             lines.Add("Candidate count: " + candidates.Count);

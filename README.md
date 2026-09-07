@@ -2,7 +2,7 @@
 
 TiaMcpServer 是一个面向 Siemens TIA Portal 的 Model Context Protocol（MCP）服务。它通过 TIA Portal Openness API 为 AI 客户端提供 PLC、HMI、硬件、程序块、在线诊断和项目文件导入导出能力，也提供一个与 MCP 共用引擎的命令行入口。
 
-项目当前包含两个 TIA Portal 目标：默认项目面向 TIA Portal V21，`TiaMcpServer.V20.csproj` 面向 V20。运行时会检测本机 TIA 版本，并在交付目录中尝试路由到匹配版本的引擎。
+项目面向 TIA Portal V21。主服务通过 `TiaMcpServer.csproj` 构建，运行时从本机 V21 安装目录加载 Openness 程序集。
 
 ## 功能概览
 
@@ -23,7 +23,7 @@ TiaMcpServer 是一个面向 Siemens TIA Portal 的 Model Context Protocol（MCP
 - 主服务：`.NET Framework 4.8`，`x64`
 - 离线测试：`.NET 8` 控制台程序
 - MCP SDK：`ModelContextProtocol 0.3.0-preview.4`
-- TIA Portal：Siemens Openness V20/V21
+- TIA Portal：Siemens Openness V21
 - 通信：Sharp7、Workstation.UaClient
 - 配置与规格解析：YamlDotNet、System.Text.Json
 
@@ -31,7 +31,7 @@ TiaMcpServer 是一个面向 Siemens TIA Portal 的 Model Context Protocol（MCP
 
 ### 使用发布包
 
-正式交付建议使用 GitHub Release 中的 Windows x64 zip 发布包。发布包必须包含 `TiaMcpServer.exe`、.NET/MCP 依赖 DLL 和配置文件；不要只下载 exe。发布包不包含 Siemens TIA Openness API，实际项目操作仍需要本机安装匹配版本的 TIA Portal、Openness 组件及相关授权。
+从 GitHub Release 下载 `TiaMcpServer-v21-win-x64.zip`，完整解压并保留 `TiaMcpServer.exe`、.NET/MCP 依赖 DLL 和配置文件。实际项目操作使用本机安装的 TIA Portal V21、Openness 组件及相关授权。
 
 解压后先运行环境检查：
 
@@ -56,19 +56,11 @@ cd C:\path\to\TiaMcpServer
 
 ### 本机开发与离线测试
 
-实际连接或修改 TIA 项目需要 Windows x64、.NET Framework 4.8、匹配版本的 TIA Portal（包含 Openness）、当前用户加入 `Siemens TIA Openness` 用户组，以及当前用户可访问目标项目。运行离线测试只需要 .NET SDK 8，不需要启动 TIA Portal 或加载 Openness 程序集。
+实际连接或修改 TIA 项目需要 Windows x64、.NET Framework 4.8、TIA Portal V21（包含 Openness）、当前用户加入 `Siemens TIA Openness` 用户组，以及当前用户可访问目标项目。离线测试在 .NET SDK 8 环境中独立运行。
 
-版本匹配关系如下：
-
-| 发布包 | 目标 TIA Portal | Openness API |
-|---|---|---|
-| V21 | TIA Portal V21 | 本机 `PublicAPI\\V21` |
-| V20 | TIA Portal V20 | 本机 `PublicAPI\\V20` |
-
-如果机器上安装了多个 TIA 版本，程序会自动尝试匹配；也可以明确指定：
+程序自动查找 V21 安装目录，并加载该目录中的 `PublicAPI\V21` 程序集。自定义安装目录可通过 `--tia-portal-location` 指定：
 
 ~~~powershell
-.\TiaMcpServer.exe --tia-major-version 21
 .\TiaMcpServer.exe --tia-portal-location 'D:\TIA21\Portal V21'
 ~~~
 
@@ -86,8 +78,7 @@ dotnet run --project .\src\TiaMcpServer\TiaMcpServer.csproj -c Release
 常用启动参数：
 
 ```text
---tia-major-version N       指定 TIA 主版本，例如 20 或 21
---tia-portal-location PATH  指定 TIA Portal 安装目录
+--tia-portal-location PATH  指定 TIA Portal V21 安装目录
 --profile lite|full         工具列表；默认 lite
 --with-ui                   使用 TIA Portal 图形界面启动，默认无界面
 --logging 0|1|2|3           无日志、stderr、Debug 输出或 Windows Event Log
@@ -136,7 +127,7 @@ stdio 配置的基本形态如下，`command` 必须指向构建或交付包中�
   "mcpServers": {
     "tia-portal": {
       "command": "C:\\path\\to\\TiaMcpServer.exe",
-      "args": ["--tia-major-version", "21"]
+      "args": []
     }
   }
 }
@@ -216,8 +207,7 @@ src/TiaMcpServer/
 ├── Runtime/                   在线读取和环境体检
 ├── Siemens/                   TIA Openness、项目、PLC、HMI、设备和下载逻辑
 ├── Program*.cs                启动流程、探针和报告生成入口
-├── TiaMcpServer.csproj         默认 TIA Portal V21 目标
-├── TiaMcpServer.V20.csproj    TIA Portal V20 目标
+├── TiaMcpServer.csproj         TIA Portal V21 主项目
 └── TiaMcpServer.sln           Visual Studio 解决方案
 
 tests/TiaMcpServer.Tests/      .NET 8 离线检查控制台

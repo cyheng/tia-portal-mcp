@@ -33,7 +33,7 @@ namespace TiaMcpServer.ModelContextProtocol
 
             var projectPath = S("projectPath");
             if (string.IsNullOrWhiteSpace(projectPath))
-                throw new McpException("PatchProject: 'projectPath' is required (the .apXX to open)", McpErrorCode.InvalidParams);
+                throw new McpException("PatchProject: 'projectPath' is required (the .ap21 to open)", McpErrorCode.InvalidParams);
             // Openness resolves relative paths against the exe dir; resolve against CWD so a
             // relative projectPath in the spec opens the project the user actually means.
             projectPath = Path.GetFullPath(projectPath);

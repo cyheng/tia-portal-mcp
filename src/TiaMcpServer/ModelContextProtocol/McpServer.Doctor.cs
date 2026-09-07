@@ -23,13 +23,8 @@ namespace TiaMcpServer.ModelContextProtocol
             {
                 var checks = new List<DoctorCheck>();
 
-                // 1) Environment prerequisites, shared with `tia doctor` so the two cannot drift.
-                //    Covers TIA install, Openness assembly resolution (TIA can be installed WITHOUT
-                //    Openness — the old check said OK and the engine then died on first call),
-                //    engine/TIA version match, .NET Framework 4.8, and Windows MOTW blocking.
-                int? inUse = Engineering.TiaMajorVersion == 0 ? (int?)null : Engineering.TiaMajorVersion;
-                int? detected = Engineering.DetectTiaMajorVersion();
-                foreach (var c in Runtime.EnvironmentDoctor.Run(EngineRouter.CompiledTiaMajorVersion, inUse ?? detected))
+                // 1) V21 installation, Openness, .NET Framework 4.8, and Windows file checks.
+                foreach (var c in Runtime.EnvironmentDoctor.Run())
                 {
                     checks.Add(new DoctorCheck
                     {

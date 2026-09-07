@@ -247,7 +247,7 @@ namespace TiaMcpServer.ModelContextProtocol
             {
                 var env = new BootstrapEnvironment
                 {
-                    TiaVersionInUse = Engineering.TiaMajorVersion == 0 ? (int?)null : Engineering.TiaMajorVersion,
+                    TiaVersionInUse = Engineering.TiaMajorVersion,
                     TiaVersionDetected = Engineering.DetectTiaMajorVersion(),
                     TiaInstallPath = Environment.GetEnvironmentVariable("TiaPortalLocation"),
                     Transport = Environment.GetEnvironmentVariable("MCP_TRANSPORT") ?? "stdio",
@@ -277,7 +277,7 @@ namespace TiaMcpServer.ModelContextProtocol
                 else if (env.TiaVersionInUse == null && env.TiaVersionDetected == null)
                 {
                     nextTool = "(install TIA Portal)";
-                    reason = "No TIA Portal installation detected. Install V18+ and set TiaPortalLocation env var.";
+                    reason = "Install TIA Portal V21 with Openness and set TiaPortalLocation to its installation directory.";
                 }
                 else if (portalDto.Connected != true)
                 {
@@ -894,7 +894,7 @@ namespace TiaMcpServer.ModelContextProtocol
                 case "ambiguouspath":
                     return new List<string> { "List candidates and choose one exact path.", "Avoid single block names when groups may contain duplicates.", "Use GetBlocksWithHierarchy before exporting/importing blocks." };
                 case "unsupportedtiaversion":
-                    return new List<string> { "Confirm TIA Portal V21 is installed.", "Restart the server with --tia-major-version 21.", "Check installed Openness assemblies." };
+                    return new List<string> { "Confirm TIA Portal V21 is installed.", "Set --tia-portal-location to the V21 installation directory.", "Check installed Openness assemblies." };
                 case "opennesspermissiondenied":
                     return new List<string> { "Add the user to Siemens TIA Openness group.", "Sign out or restart after changing group membership.", "Run scripts/check-environment.ps1." };
                 case "hardwarecatalognotfound":

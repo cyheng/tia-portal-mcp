@@ -12,7 +12,6 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text.Json.Nodes;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using TiaMcpServer.Siemens;
@@ -66,13 +65,19 @@ namespace TiaMcpServer.ModelContextProtocol
             }
         }
 
-        [McpServerTool(Name = "OpenProject"), Description("[L1][Project] Open a local TIA Portal project (.apXX) or multi-user session (.alsXX) file, where XX is the TIA version number (e.g. .ap21, .als21). Requires: Connect. Closes any currently open project first. After success, call GetProjectTree to explore its structure.")]
+        [McpServerTool(Name = "OpenProject"), Description("[L1][Project] Open a TIA Portal V21 project (.ap21) or multi-user session (.als21). Validates the target file before switching from the current project. Requires: Connect. After success, call GetProjectTree to explore its structure.")]
         public static ResponseOpenProject OpenProject(
             [Description("path: defines the path where to the project/session")] string path,
             [Description("closeForeignProject: DEFAULT false. If TIA already has a project open that this session did not open, the call is REFUSED rather than closing the user's work. Only pass true after the user has agreed to close it.")] bool closeForeignProject = false)
         {
             try
             {
+                try { path = ProjectFilePath.Resolve(path); }
+                catch (Exception ex) when (ex is ArgumentException || ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    throw new McpException(ex.Message, ex, McpErrorCode.InvalidParams);
+                }
+
                 var foreign = Portal.ForeignOpenProjectName();
                 if (foreign != null && !closeForeignProject)
                     throw new McpException(
@@ -88,26 +93,9 @@ namespace TiaMcpServer.ModelContextProtocol
                     Portal.CloseProject();
                 }
 
-                // get project extension
-                string extension = Path.GetExtension(path).ToLowerInvariant();
-
-                // use regex to check if extension is .ap\d+ or .als\d+
-                if (!Regex.IsMatch(extension, @"^\.ap\d+$") &&
-                    !Regex.IsMatch(extension, @"^\.als\d+$"))
-                {
-                    throw new McpException("Invalid project file extension. Use .apXX for projects or .alsXX for sessions, where XX=18,19,20,....", McpErrorCode.InvalidParams);
-                }
-
-                bool success = false;
-
-                if (extension.StartsWith(".ap"))
-                {
-                    success = Portal.OpenProject(path, closeForeignProject);
-                }
-                if (extension.StartsWith(".als"))
-                {
-                    success = Portal.OpenSession(path);
-                }
+                bool success = ProjectFilePath.IsSession(path)
+                    ? Portal.OpenSession(path)
+                    : Portal.OpenProject(path, closeForeignProject);
 
                 if (success)
                 {

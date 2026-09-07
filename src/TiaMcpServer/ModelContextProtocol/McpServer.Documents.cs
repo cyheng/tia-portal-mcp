@@ -40,7 +40,7 @@ namespace TiaMcpServer.ModelContextProtocol
             + "那是转义没生效，不是 BOM。\r\n"
             + "5) 只需要 DB / UDT / 变量表的话，改走 PlcBuildAndImport 的 JSON 路，完全绕开 .s7dcl。";
 
-        [McpServerTool(Name = "ExportAsDocuments"), Description("[L2][PLC-Software] PREFERRED on V21+ for exporting one block. Exports a single program block to SIMATIC SD textual / SCL document format (.s7dcl + .s7res) — far more readable/diff-friendly than SimaticML XML (ExportBlock). Requires TIA Portal V20 or newer.")]
+        [McpServerTool(Name = "ExportAsDocuments"), Description("[L2][PLC-Software] Export a single program block as readable SIMATIC SD / SCL documents (.s7dcl + .s7res) through TIA Portal V21. Requires: Connect + OpenProject.")]
         public static ResponseExportAsDocuments ExportAsDocuments(
             [Description("softwarePath: defines the path in the project structure to the plc software")] string softwarePath,
             [Description("blockPath: defines the path in the project structure to the block")] string blockPath,
@@ -49,10 +49,6 @@ namespace TiaMcpServer.ModelContextProtocol
         {
             try
             {
-                if (Engineering.TiaMajorVersion < 20)
-                {
-                    throw new McpException("ExportAsDocuments requires TIA Portal V20 or newer", McpErrorCode.InvalidParams);
-                }
                 if (WithAutoOffline(() => Portal.ExportAsDocuments(softwarePath, blockPath, exportPath, preservePath)))
                 {
                     return new ResponseExportAsDocuments
@@ -76,7 +72,7 @@ namespace TiaMcpServer.ModelContextProtocol
             }
         }
 
-        [McpServerTool(Name = "ExportBlocksAsDocuments"), Description("[L2][PLC-Software] PREFERRED on V21+ for batch export. Exports multiple program blocks to SIMATIC SD textual / SCL document format (.s7dcl + .s7res) — far more readable/diff-friendly than SimaticML XML. Requires TIA Portal V20 or newer.")]
+        [McpServerTool(Name = "ExportBlocksAsDocuments"), Description("[L2][PLC-Software] Export multiple program blocks as readable SIMATIC SD / SCL documents (.s7dcl + .s7res) through TIA Portal V21. Requires: Connect + OpenProject.")]
         public static async Task<ResponseExportBlocksAsDocuments> ExportBlocksAsDocuments(
             IMcpServer server,
             RequestContext<CallToolRequestParams> context,
@@ -90,10 +86,6 @@ namespace TiaMcpServer.ModelContextProtocol
             
             try
             {
-                if (Engineering.TiaMajorVersion < 20)
-                {
-                    throw new McpException("ExportBlocksAsDocuments requires TIA Portal V20 or newer", McpErrorCode.InvalidParams);
-                }
                 // First, get the list of blocks to determine total count
                 Logger?.LogInformation($"Starting export of blocks as documents from '{softwarePath}' to '{exportPath}'");
                 
@@ -267,7 +259,7 @@ namespace TiaMcpServer.ModelContextProtocol
             }
         }
 
-        [McpServerTool(Name = "ImportFromDocuments"), Description("[L2][PLC-Software] PREFERRED on V21+ for importing one block. Imports a single program block from SIMATIC SD textual / SCL documents (.s7dcl + .s7res) into PLC software. Requires TIA Portal V20 or newer. After import it reads back to confirm the block is present (Meta.verified).")]
+        [McpServerTool(Name = "ImportFromDocuments"), Description("[L2][PLC-Software] Import a single program block from SIMATIC SD / SCL documents (.s7dcl + .s7res) through TIA Portal V21. After import, read-back confirms the block is present (Meta.verified). Requires: Connect + OpenProject.")]
         public static ResponseImportFromDocuments ImportFromDocuments(
             [Description("softwarePath: defines the path in the project structure to the plc software")] string softwarePath,
             [Description("groupPath: optional path within the PLC program where the block should be placed (empty for root)")] string groupPath,
@@ -277,11 +269,6 @@ namespace TiaMcpServer.ModelContextProtocol
         {
             try
             {
-                if (Engineering.TiaMajorVersion < 20)
-                {
-                    throw new McpException("ImportFromDocuments requires TIA Portal V20 or newer", McpErrorCode.InvalidParams);
-                }
-
                 var option = ParseImportDocumentOption(importOption);
 
                 // Pre-check .s7res for missing en-US tags
@@ -354,7 +341,7 @@ namespace TiaMcpServer.ModelContextProtocol
             }
         }
 
-        [McpServerTool(Name = "ImportBlocksFromDocuments"), Description("[L2][PLC-Software] PREFERRED on V21+ for batch import. Imports multiple program blocks from SIMATIC SD textual / SCL documents (.s7dcl + .s7res) into PLC software. Requires TIA Portal V20 or newer.")]
+        [McpServerTool(Name = "ImportBlocksFromDocuments"), Description("[L2][PLC-Software] Import multiple program blocks from SIMATIC SD / SCL documents (.s7dcl + .s7res) through TIA Portal V21. Requires: Connect + OpenProject.")]
         public static async Task<ResponseImportBlocksFromDocuments> ImportBlocksFromDocuments(
             IMcpServer server,
             RequestContext<CallToolRequestParams> context,
@@ -369,11 +356,6 @@ namespace TiaMcpServer.ModelContextProtocol
 
             try
             {
-                if (Engineering.TiaMajorVersion < 20)
-                {
-                    throw new McpException("ImportBlocksFromDocuments requires TIA Portal V20 or newer", McpErrorCode.InvalidParams);
-                }
-
                 // Determine total by scanning .s7dcl files matching regex
                 int total = 0;
                 var scanWarnings = new JsonArray();

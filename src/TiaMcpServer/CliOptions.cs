@@ -2,8 +2,7 @@
 {
     public class CliOptions
     {
-        public int? TiaMajorVersion { get; set; }
-        public string? TiaPortalLocation { get; set; } // explicit install root, e.g. D:\app\TIA20\Portal V20
+        public string? TiaPortalLocation { get; set; } // explicit V21 install root, e.g. D:\app\TIA21\Portal V21
         public int? Logging { get; set; } // 1=stderr, 2=Debug, 3=EventLog
         // Tool roster size: "lite" (default, ~48 tools) or "full" (everything).
         // null = not given on the command line; TIA_MCP_PROFILE then decides.
@@ -124,11 +123,9 @@
                 {
                     case "-tia-major-version":
                     case "--tia-major-version":
-                        if (i + 1 < args.Length && int.TryParse(args[i + 1], out int v))
-                        {
-                            options.TiaMajorVersion = v;
-                            i++;
-                        }
+                        if (i + 1 >= args.Length || !int.TryParse(args[i + 1], out int v) || v != 21)
+                            throw new System.ArgumentException("This build targets TIA Portal V21. --tia-major-version only accepts 21 and can be omitted.");
+                        i++;
                         break;
 
                     case "-tia-portal-location":

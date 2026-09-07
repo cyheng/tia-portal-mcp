@@ -27,9 +27,9 @@ using System.Linq;
 using System.Net;
 using System.Security;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using System.Runtime.CompilerServices;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Text.Json.Nodes;
 using System.Xml.Linq;
 using TiaMcpServer.ModelContextProtocol;
@@ -307,7 +307,7 @@ namespace TiaMcpServer.Siemens
             {
                 if (IsProjectNull())
                 {
-                    throw new PortalException(PortalErrorCode.InvalidState, "No project is open. If a project is already open in the TIA Portal UI, call AttachToOpenProject(projectName); otherwise call OpenProject(path) for a local .apXX project, or CreateProject to start a new one. (Connect is attempted automatically.)");
+                    throw new PortalException(PortalErrorCode.InvalidState, "No project is open. If a project is already open in the TIA Portal UI, call AttachToOpenProject(projectName); otherwise call OpenProject(path) for a local .ap21 project, or CreateProject to start a new one. (Connect is attempted automatically.)");
                 }
 
                 var block = Guard.RequireNotNull(GetBlock(softwarePath, blockPath), "Block", blockPath);
@@ -364,7 +364,7 @@ namespace TiaMcpServer.Siemens
             {
                 if (IsProjectNull())
                 {
-                    throw new PortalException(PortalErrorCode.InvalidState, "No project is open. If a project is already open in the TIA Portal UI, call AttachToOpenProject(projectName); otherwise call OpenProject(path) for a local .apXX project, or CreateProject to start a new one. (Connect is attempted automatically.)");
+                    throw new PortalException(PortalErrorCode.InvalidState, "No project is open. If a project is already open in the TIA Portal UI, call AttachToOpenProject(projectName); otherwise call OpenProject(path) for a local .ap21 project, or CreateProject to start a new one. (Connect is attempted automatically.)");
                 }
 
                 var type = Guard.RequireNotNull(GetType(softwarePath, typePath), "Type", typePath);
@@ -412,15 +412,8 @@ namespace TiaMcpServer.Siemens
             }
         }
 
-        // Prepare a block/type XML file for Openness import. Two things are fixed on a temp
-        // copy (the user's original file is never touched):
-        //   1) Engineering version: Openness rejects an XML whose <Engineering version="Vxx"/>
-        //      is newer than the connected portal ("The engineering version 'V21' ... is not
-        //      supported."). The XML builders historically hardcode V21, so on a V20 portal
-        //      every import fails. The header is rewritten to the detected major version.
-        //   2) Encoding/BOM: block/type XML carrying Chinese comments must be UTF-8 *with BOM*
-        //      or TIA imports the text as mojibake (中文乱码). Callers (and the model that wrote
-        //      the file) frequently emit BOM-less UTF-8, so we always re-emit with a BOM here.
+        // Prepare a UTF-8 BOM copy for Openness so multilingual XML text imports correctly.
+        // The XML content and its Engineering version are preserved for TIA V21 to validate.
         private static string PrepareXmlForImport(string path)
         {
             try
@@ -429,20 +422,10 @@ namespace TiaMcpServer.Siemens
                 bool hasBom = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
                 var text = File.ReadAllText(path, Encoding.UTF8);
 
-                var fixedText = text;
-                int major = Engineering.TiaMajorVersion;
-                if (major > 0)
-                {
-                    fixedText = Regex.Replace(text,
-                        "<Engineering\\s+version=\"V\\d+\"\\s*/>",
-                        $"<Engineering version=\"V{major}\" />");
-                }
-
-                // Already correct: version matches (or unknown) AND a BOM is present -> import as-is.
-                if (fixedText == text && hasBom) return path;
+                if (hasBom) return path;
 
                 var tmp = Path.Combine(Path.GetTempPath(), "tia_mcp_import_" + Guid.NewGuid().ToString("N") + ".xml");
-                File.WriteAllText(tmp, fixedText, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+                File.WriteAllText(tmp, text, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
                 return tmp;
             }
             catch
@@ -458,7 +441,7 @@ namespace TiaMcpServer.Siemens
             try
             {
                 if (IsProjectNull())
-                    throw new PortalException(PortalErrorCode.InvalidState, "No project is open. If a project is already open in the TIA Portal UI, call AttachToOpenProject(projectName); otherwise call OpenProject(path) for a local .apXX project, or CreateProject to start a new one. (Connect is attempted automatically.)");
+                    throw new PortalException(PortalErrorCode.InvalidState, "No project is open. If a project is already open in the TIA Portal UI, call AttachToOpenProject(projectName); otherwise call OpenProject(path) for a local .ap21 project, or CreateProject to start a new one. (Connect is attempted automatically.)");
 
                 var softwareContainer = GetSoftwareContainer(softwarePath);
                 if (softwareContainer?.Software is not PlcSoftware plcSoftware)
@@ -617,7 +600,7 @@ namespace TiaMcpServer.Siemens
             try
             {
                 if (IsProjectNull())
-                    throw new PortalException(PortalErrorCode.InvalidState, "No project is open. If a project is already open in the TIA Portal UI, call AttachToOpenProject(projectName); otherwise call OpenProject(path) for a local .apXX project, or CreateProject to start a new one. (Connect is attempted automatically.)");
+                    throw new PortalException(PortalErrorCode.InvalidState, "No project is open. If a project is already open in the TIA Portal UI, call AttachToOpenProject(projectName); otherwise call OpenProject(path) for a local .ap21 project, or CreateProject to start a new one. (Connect is attempted automatically.)");
 
                 var softwareContainer = GetSoftwareContainer(softwarePath);
                 if (softwareContainer?.Software is not PlcSoftware plcSoftware)
@@ -658,7 +641,7 @@ namespace TiaMcpServer.Siemens
 
             if (IsProjectNull())
             {
-                throw new PortalException(PortalErrorCode.InvalidState, "No project is open. If a project is already open in the TIA Portal UI, call AttachToOpenProject(projectName); otherwise call OpenProject(path) for a local .apXX project, or CreateProject to start a new one. (Connect is attempted automatically.)");
+                throw new PortalException(PortalErrorCode.InvalidState, "No project is open. If a project is already open in the TIA Portal UI, call AttachToOpenProject(projectName); otherwise call OpenProject(path) for a local .ap21 project, or CreateProject to start a new one. (Connect is attempted automatically.)");
             }
 
             var exportList = new List<PlcBlock>();
@@ -936,10 +919,9 @@ namespace TiaMcpServer.Siemens
             {
                 if (IsProjectNull())
                 {
-                    throw new PortalException(PortalErrorCode.InvalidState, "No project is open. If a project is already open in the TIA Portal UI, call AttachToOpenProject(projectName); otherwise call OpenProject(path) for a local .apXX project, or CreateProject to start a new one. (Connect is attempted automatically.)");
+                    throw new PortalException(PortalErrorCode.InvalidState, "No project is open. If a project is already open in the TIA Portal UI, call AttachToOpenProject(projectName); otherwise call OpenProject(path) for a local .ap21 project, or CreateProject to start a new one. (Connect is attempted automatically.)");
                 }
 
-                Capability.RequireSupported(TiaFeature.DocumentExport);
 
                 
                 var softwareContainer = GetSoftwareContainer(softwarePath);
@@ -948,7 +930,6 @@ namespace TiaMcpServer.Siemens
                     if (plcSoftware != null)
                     {
                         // Export code blocks as documents
-                        // https://docs.tia.siemens.cloud/r/en-us/v20/creating-and-managing-blocks/exporting-and-importing-blocks-in-simatic-sd-format-s7-1200-s7-1500/exporting-and-importing-blocks-in-simatic-sd-format-s7-1200-s7-1500
 
                         var groupPath = blockPath.Contains("/") ? blockPath.Substring(0, blockPath.LastIndexOf("/")) : string.Empty;
                         var blockName = blockPath.Contains("/") ? blockPath.Substring(blockPath.LastIndexOf("/") + 1) : blockPath;
@@ -1037,12 +1018,6 @@ namespace TiaMcpServer.Siemens
 
             if (IsProjectNull())
             {
-                return null;
-            }
-
-            if (Engineering.TiaMajorVersion < 20)
-            {
-                _logger?.LogWarning("ExportBlocksAsDocuments is only supported on TIA Portal V20 or newer");
                 return null;
             }
 
@@ -1191,12 +1166,6 @@ namespace TiaMcpServer.Siemens
                 return false;
             }
 
-            if (Engineering.TiaMajorVersion < 20)
-            {
-                _logger?.LogWarning("ImportFromDocuments is only supported on TIA Portal V20 or newer");
-                return false;
-            }
-
             var softwareContainer = GetSoftwareContainer(softwarePath);
             if (!(softwareContainer?.Software is PlcSoftware plcSoftware))
             {
@@ -1335,12 +1304,6 @@ namespace TiaMcpServer.Siemens
 
             if (IsProjectNull())
             {
-                return null;
-            }
-
-            if (Engineering.TiaMajorVersion < 20)
-            {
-                _logger?.LogWarning("ImportBlocksFromDocuments is only supported on TIA Portal V20 or newer");
                 return null;
             }
 

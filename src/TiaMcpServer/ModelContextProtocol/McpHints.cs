@@ -41,9 +41,9 @@ namespace TiaMcpServer.ModelContextProtocol
                 Has(m, "no such") || Has(m, "unable to locate") || Has(m, "cannot find"))
                 return Tip("the name/path may be wrong — call GetProjectTree / GetSoftwareTree / GetBlocks to read the REAL names (plc software path defaults to 'PLC_1', HMI to 'HMI_RT_1') instead of guessing.");
 
-            // version mismatch (V20 exe vs V21 XML etc.)
+            // Match imported engineering data to the V21 runtime.
             if (Has(m, "engineering version") || (Has(m, "version") && Has(m, "not supported")))
-                return Tip("TIA version mismatch — run the exe that matches the installed TIA (V20 vs V21), and ensure imported XML's <Engineering version> matches.");
+                return Tip("Use TIA Portal V21 with its matching Openness assemblies and import XML exported or generated for V21.");
 
             // openness group / permissions
             if (Has(m, "openness") && (Has(m, "group") || Has(m, "permission") || Has(m, "denied")))

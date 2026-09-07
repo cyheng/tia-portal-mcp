@@ -215,13 +215,8 @@ namespace TiaMcpServer.Siemens
 
 
         /// <summary>
-        /// 枚举变量表时**顺手记下走过了什么**，专门给「返回空清单」这种情况用。
-        ///
-        /// 为什么要有它：空清单有三种完全不同的成因 —— 这个 PLC 确实没有表、
-        /// TagTables 属性在这个版本上叫别的名字、读属性时抛了异常被吞掉。
-        /// 三者返回的东西一模一样，调用方（和维护者）无从分辨，
-        /// 用户报「V20 上枚举返回空但删除工具能找到同一张表」时，我们手上没有任何证据。
-        /// 有了这几行，空清单至少能自证是哪一种。
+        /// 记录变量表枚举过程中的对象类型、属性访问结果和遍历数量，
+        /// 供调用方区分空变量表、属性差异和读取错误。
         /// </summary>
         public sealed class TagTableWalkDiagnostics
         {
@@ -330,7 +325,7 @@ namespace TiaMcpServer.Siemens
 
         public void ImportPlcTagTable(string softwarePath, string folderPath, string importPath)
         {
-            if (IsProjectNull()) throw new PortalException(PortalErrorCode.InvalidState, "No project is open. If a project is already open in the TIA Portal UI, call AttachToOpenProject(projectName); otherwise call OpenProject(path) for a local .apXX project, or CreateProject to start a new one. (Connect is attempted automatically.)");
+            if (IsProjectNull()) throw new PortalException(PortalErrorCode.InvalidState, "No project is open. If a project is already open in the TIA Portal UI, call AttachToOpenProject(projectName); otherwise call OpenProject(path) for a local .ap21 project, or CreateProject to start a new one. (Connect is attempted automatically.)");
 
             var plc = GetPlcSoftware(softwarePath);
             if (plc == null) throw new PortalException(PortalErrorCode.NotFound, $"PlcSoftware not found at '{softwarePath}'");
@@ -345,11 +340,7 @@ namespace TiaMcpServer.Siemens
                 if (tables == null)
                     throw new PortalException(PortalErrorCode.NotFound, $"TagTables collection not found. plcType={plc.GetType().FullName} groupType={group.GetType().FullName}");
 
-                // Route through PrepareXmlForImport so the hardcoded <Engineering version="V21"/>
-                // header is rewritten to the connected portal version (and a UTF-8 BOM is ensured).
-                // Without this, tag-table imports fail on a V20 portal with
-                // "The engineering version 'V21' ... is not supported." (block/type imports already
-                // sanitize via PrepareXmlForImport; tag tables previously skipped it).
+                // Share the UTF-8 BOM preparation used for block and type imports.
                 if (TryImportEngineeringObjectIntoCollection(tables, PrepareXmlForImport(importPath), out _, out var err)) return;
                 throw new PortalException(PortalErrorCode.ImportFailed, err ?? "ImportPlcTagTable failed");
             }
@@ -1146,7 +1137,7 @@ namespace TiaMcpServer.Siemens
 
         public void ImportTechnologyObject(string softwarePath, string folderPath, string importPath)
         {
-            if (IsProjectNull()) throw new PortalException(PortalErrorCode.InvalidState, "No project is open. If a project is already open in the TIA Portal UI, call AttachToOpenProject(projectName); otherwise call OpenProject(path) for a local .apXX project, or CreateProject to start a new one. (Connect is attempted automatically.)");
+            if (IsProjectNull()) throw new PortalException(PortalErrorCode.InvalidState, "No project is open. If a project is already open in the TIA Portal UI, call AttachToOpenProject(projectName); otherwise call OpenProject(path) for a local .ap21 project, or CreateProject to start a new one. (Connect is attempted automatically.)");
 
             var plc = GetPlcSoftware(softwarePath);
             if (plc == null) throw new PortalException(PortalErrorCode.NotFound, $"PlcSoftware not found at '{softwarePath}'");
@@ -4921,7 +4912,7 @@ namespace TiaMcpServer.Siemens
 
         public void ImportHmiScreen(string softwarePath, string folderPath, string importPath)
         {
-            if (IsProjectNull()) throw new PortalException(PortalErrorCode.InvalidState, "No project is open. If a project is already open in the TIA Portal UI, call AttachToOpenProject(projectName); otherwise call OpenProject(path) for a local .apXX project, or CreateProject to start a new one. (Connect is attempted automatically.)");
+            if (IsProjectNull()) throw new PortalException(PortalErrorCode.InvalidState, "No project is open. If a project is already open in the TIA Portal UI, call AttachToOpenProject(projectName); otherwise call OpenProject(path) for a local .ap21 project, or CreateProject to start a new one. (Connect is attempted automatically.)");
 
             var softwareContainer = GetSoftwareContainer(softwarePath);
             if (softwareContainer?.Software == null) throw new PortalException(PortalErrorCode.NotFound, $"HMI software not found: {softwarePath}");
@@ -4965,7 +4956,7 @@ namespace TiaMcpServer.Siemens
 
         public void ImportHmiTagTable(string softwarePath, string folderPath, string importPath)
         {
-            if (IsProjectNull()) throw new PortalException(PortalErrorCode.InvalidState, "No project is open. If a project is already open in the TIA Portal UI, call AttachToOpenProject(projectName); otherwise call OpenProject(path) for a local .apXX project, or CreateProject to start a new one. (Connect is attempted automatically.)");
+            if (IsProjectNull()) throw new PortalException(PortalErrorCode.InvalidState, "No project is open. If a project is already open in the TIA Portal UI, call AttachToOpenProject(projectName); otherwise call OpenProject(path) for a local .ap21 project, or CreateProject to start a new one. (Connect is attempted automatically.)");
 
             var softwareContainer = GetSoftwareContainer(softwarePath);
             if (softwareContainer?.Software == null) throw new PortalException(PortalErrorCode.NotFound, $"HMI software not found: {softwarePath}");
@@ -5004,7 +4995,7 @@ namespace TiaMcpServer.Siemens
 
         public void ImportHmiConnection(string softwarePath, string importPath)
         {
-            if (IsProjectNull()) throw new PortalException(PortalErrorCode.InvalidState, "No project is open. If a project is already open in the TIA Portal UI, call AttachToOpenProject(projectName); otherwise call OpenProject(path) for a local .apXX project, or CreateProject to start a new one. (Connect is attempted automatically.)");
+            if (IsProjectNull()) throw new PortalException(PortalErrorCode.InvalidState, "No project is open. If a project is already open in the TIA Portal UI, call AttachToOpenProject(projectName); otherwise call OpenProject(path) for a local .ap21 project, or CreateProject to start a new one. (Connect is attempted automatically.)");
 
             var softwareContainer = GetSoftwareContainer(softwarePath);
             if (softwareContainer?.Software == null) throw new PortalException(PortalErrorCode.NotFound, $"HMI software not found: {softwarePath}");
@@ -6943,7 +6934,7 @@ namespace TiaMcpServer.Siemens
             }
             if (src == null) throw new PortalException(PortalErrorCode.NotFound, $"GenerateBlocksFromExternalSource: external source not found: {externalSourceName}");
 
-            // V18+ often exposes GenerateBlocksFromSource(PlcBlockUserGroup, GenerateBlockOption) only;
+            // Resolve GenerateBlocksFromSource(PlcBlockUserGroup, GenerateBlockOption);
             // parameterless GenerateBlocks() may not exist.
             var t = src.GetType();
             var methods = t.GetMethods(BindingFlags.Public | BindingFlags.Instance)

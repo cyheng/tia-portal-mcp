@@ -5,7 +5,7 @@ description: Drive Siemens TIA Portal (博途) end-to-end through the TiaMcpServ
 
 # TIA Portal MCP — Single Skill
 
-This is the operating skill for TIA Portal MCP automation. The
+This is the operating skill for TIA Portal V21 MCP automation. The
 companion plugin lives at `tools/tiaportal-mcp/`. It exposes on the order of
 **~201** MCP tools (lite profile ~43; exact runtime set: call `tools/list` on the running server) covering
 project, hardware, PLC, HMI, and online operations.
@@ -123,6 +123,12 @@ L1  Connect, Disconnect, AttachToOpenProject, OpenProject, CreateProject,
 ```
 
 ## 2. Connecting an AI client to the MCP server
+
+The server targets TIA Portal V21 on Windows x64 with .NET Framework 4.8.
+Install V21 with the Openness component and add the operating user to the
+`Siemens TIA Openness` group. The server locates the V21 installation and
+loads its PublicAPI assemblies. For a custom installation directory, pass
+`--tia-portal-location "D:\TIA21\Portal V21"` when starting the server.
 
 ### stdio (Claude Desktop, Cursor, VS Code MCP)
 
