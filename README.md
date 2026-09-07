@@ -54,11 +54,31 @@ cd C:\path\to\TiaMcpServer
 
 浏览器下载的文件若带有网络来源标记，遇到程序集无法加载时，可在解压目录执行 `Get-ChildItem -Recurse | Unblock-File`。
 
+### 配置博途安装路径
+
+建议在 AI 客户端的 MCP 服务配置中显式设置 `TiaPortalLocation`，把博途安装路径直接传给 MCP 子进程，配置示例见下文「接入 AI 客户端」。变量值填写包含 `PublicAPI` 子目录的 TIA Portal V21 安装根目录；自定义安装位置使用本机的实际路径。
+
+| 环境变量 | 默认安装路径示例 |
+|---|---|
+| `TiaPortalLocation` | `C:/Program Files/Siemens/Automation/Portal V21` |
+
+也可以在 Windows「环境变量 → 用户变量」中添加上述变量，或通过 PowerShell 写入当前用户的环境变量：
+
+```powershell
+[Environment]::SetEnvironmentVariable(
+    "TiaPortalLocation",
+    "C:/Program Files/Siemens/Automation/Portal V21",
+    "User"
+)
+```
+
+保存用户环境变量后，完整退出 AI 客户端及其后台进程，再重新启动客户端，使它和后续启动的 MCP 子进程继承新值。当前 PowerShell 会话可用 `$env:TiaPortalLocation = "C:/Program Files/Siemens/Automation/Portal V21"` 立即设置；该赋值作用于当前终端及其后续子进程。
+
 ### 本机开发与离线测试
 
 实际连接或修改 TIA 项目需要 Windows x64、.NET Framework 4.8、TIA Portal V21（包含 Openness）、当前用户加入 `Siemens TIA Openness` 用户组，以及当前用户可访问目标项目。离线测试在 .NET SDK 8 环境中独立运行。
 
-程序自动查找 V21 安装目录，并加载该目录中的 `PublicAPI\V21` 程序集。自定义安装目录可通过 `--tia-portal-location` 指定：
+程序优先使用 `--tia-portal-location` 指定的安装目录；自动查找时依次检查 `TiaPortalLocation` 环境变量、V21 注册表信息和默认安装目录，选取包含 V21 Openness API 的目录。标准安装结构中的程序集位于 `PublicAPI\V21\net48`。自定义安装目录也可直接通过参数指定：
 
 ~~~powershell
 .\TiaMcpServer.exe --tia-portal-location 'D:\TIA21\Portal V21'
@@ -120,18 +140,37 @@ dotnet run --project .\src\TiaMcpServer\TiaMcpServer.csproj -c Release -- config
 
 也可以指定客户端，例如 `config --host cursor`、`config --host vscode` 或 `config --host codex`。配置写入前会保留 `.bak` 备份；写入后需要重启 AI 客户端。
 
-stdio 配置的基本形态如下，`command` 必须指向构建或交付包中的实际 `TiaMcpServer.exe`：
+通过 CLI 生成配置后，在 `tia-portal` 服务条目的 `env` 中补充博途安装路径。下面展示采用 `mcpServers` 结构的 stdio 配置：`command` 指向构建或交付包中的 `TiaMcpServer.exe`，`TiaPortalLocation` 指向博途安装根目录。
 
 ```json
 {
   "mcpServers": {
     "tia-portal": {
       "command": "C:\\path\\to\\TiaMcpServer.exe",
-      "args": []
+      "args": [],
+      "env": {
+        "TiaPortalLocation": "C:/Program Files/Siemens/Automation/Portal V21"
+      }
     }
   }
 }
 ```
+
+客户端启动 MCP 时会把 `env` 中的值传给服务子进程。保存配置后，重新启动对应 MCP 服务。若 `args` 中同时设置了 `--tia-portal-location`，服务以该参数指定的路径为准。
+
+### MCP 启动时的路径检查
+
+启动日志出现 Siemens DLL 加载失败、`FileNotFoundException` 或 Openness 初始化退出时，先在发布包目录中检查安装路径和 API 文件：
+
+```powershell
+$env:TiaPortalLocation = "C:/Program Files/Siemens/Automation/Portal V21"
+Test-Path (Join-Path $env:TiaPortalLocation "PublicAPI/V21/net48/Siemens.Engineering.Base.dll")
+.\TiaMcpServer.exe doctor
+```
+
+标准安装结构下，`Test-Path` 的预期结果为 `True`，`doctor` 会显示所选安装目录和可解析的 V21 Openness DLL 路径。需要补齐 API 文件时，通过 TIA Portal V21 安装程序安装 Openness 组件。
+
+终端中的 `doctor` 反映当前终端的进程环境。AI 客户端启动 MCP 使用该客户端的进程环境及 MCP 配置中的 `env`；将确认过的路径填入该服务条目，可让子进程使用相同的安装目录。进一步排查时查看客户端的 MCP 日志、`%TEMP%/TiaMcpServer.log` 和程序目录中的 `TiaMcpServer.startup.log`。
 
 ## CLI 工作流
 
