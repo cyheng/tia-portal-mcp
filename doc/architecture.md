@@ -39,6 +39,20 @@ MCP 工具集中在 ModelContextProtocol/，使用 McpServerTool 特性暴露。
 
 默认 lite 工具档只列出核心工具，其余工具通过 FindTools 和 CallTool 按需访问；--profile full 才列出完整工具表。
 
+工具入口保留在 `partial McpServer` 中，按职责组织文件：
+
+| 文件 | 职责 |
+|---|---|
+| `McpServer.PlcSoftware.cs` | PLC 软件、变量表、工艺对象、外部源和编译工具 |
+| `McpServer.PlcAuthoring.cs` | PLC XML 构建、SCL 文件生成和构建产物导入 |
+| `McpServer.Hmi.cs` | HMI 查询、画面、标签、连接和事件脚本 |
+| `McpServer.HmiTemplates.cs` | HMI 模板、库复用和设计预检 |
+| `McpServer.Online.cs` | 在线状态、监视、下载及临时离线执行 |
+| `McpServer.ReleaseValidation.cs` | 发布验证、诊断报告和交付清单 |
+| `McpServer.ProjectWorkflow*.cs` | 工程生成与补丁的初始化、PLC 和 HMI 步骤适配 |
+
+`partial Portal` 按相同业务边界组织 Openness 实现。`Portal.Software.cs` 管理 PLC 软件、工艺对象、外部源和编译；`Portal.PlcTables.cs` 管理 PLC 表；`Portal.SoftwareImportExport.cs` 负责批量导入导出；HMI 查询、画面及脚本、标签及连接分别位于 `Portal.Hmi.cs`、`Portal.UnifiedHmiScreens.cs` 和 `Portal.UnifiedHmiTags.cs`。全局库操作位于 `Portal.GlobalLibraries.cs`，跨软件对象的反射访问集中在 `Portal.SoftwareReflection.cs`。
+
 ## TIA 依赖边界
 
 源码中的 Siemens.Engineering.* 类型在编译期来自本机 TIA Portal V21 的 `PublicAPI\V21\net48`。`TiaMcpServer.csproj` 引用 Openness V21 构建包，通过本机安装信息或 `TiaPortalLocation` 属性定位这些程序集。
@@ -54,10 +68,26 @@ Bootstrap -> Connect -> OpenProject/AttachToOpenProject/CreateProject
          -> GetProjectTree -> read/write -> CompileSoftware -> SaveProject
 ~~~
 
-SCL/LAD 构建器位于 ModelContextProtocol/，实际 TIA 调用位于 Siemens/。这样离线验证器可以链接不依赖 Siemens 程序集的构建逻辑，而真实工程操作仍通过 Openness 会话完成。
+SCL/LAD 构建器位于 ModelContextProtocol/，实际 TIA 调用位于 Siemens/。构建、规格解析和步骤判定可以独立执行，工程读写通过 Openness 会话完成。
+
+## 工程规格与执行
+
+`ScaffoldProject` 和 `PatchProject` 是共享流程的两个入口。`ProjectSpecification` 负责解析规格和检查字段类型；`ProjectWorkflow` 负责全量预检、预演结果和保存条件；`McpServer.ProjectWorkflow*.cs` 将实际 PLC/HMI 工具接入该流程。
+
+~~~text
+JSON / YAML -> ProjectSpecification -> 全量离线预检
+                                     -> dryRun: 返回预检报告
+                                     -> 实际执行: 初始化工程 -> PLC 步骤 -> HMI 步骤
+                                                                        -> 汇总步骤结果
+                                                                        -> 成功且 save=true: 保存
+~~~
+
+步骤执行器依据子响应中的成功标记、失败集合及编译结果记录 `ok`、`failed`、`skipped`。同一步骤内的后续写入以前置调用成功为条件。自动保存以全部请求步骤成功为条件；失败报告保留已完成步骤，工程中的部分修改留在当前会话中供检查。
+
+HMI 目标解析使用指定设备及其软件路径，解析错误会进入步骤报告。规格缺省值、参数错误和子操作失败均由共享实现处理。
 
 ## 测试边界
 
-tests/TiaMcpServer.Tests 通过项目文件链接少量零依赖源码，测试模板布局、JSON 构建、资源扫描、参数诊断、响应存储、错误分类和脚本检查。它不会启动 TIA Portal，也不会验证真实 PLC 编译、下载或在线通信。
+tests/TiaMcpServer.Tests 通过项目文件链接独立逻辑源码，覆盖 V21 安装路径、CLI 配置、YAML 类型、项目规格、步骤执行、模板布局、JSON 构建、资源扫描、参数诊断、响应存储和错误分类。工程流程测试通过委托提供子操作结果，验证预检屏障、失败传播、调用顺序和保存条件；脚本检查覆盖 HMI 事件脚本的默认校验策略。
 
 真实 TIA 验证在安装了 TIA Portal V21 的环境中执行，并按 Skill 中的顺序先检查环境、项目树和编译结果。

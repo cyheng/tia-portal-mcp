@@ -60,42 +60,35 @@ else unless one of these tools' output explicitly tells you to call another:
   `blockJson`↔`fcBlockJson`、`name`↔`projectName`)。即便如此，**优先传准确值**。
 - **一键自检自修** — 见上表 `Doctor`。
 
-## 0.5 Fastest path — generate a whole project in ONE call (`ScaffoldProject`)
+## 0.5 Generate a project from a specification (`ScaffoldProject`)
 
-When the user asks to **create/generate a complete project** (PLC + HMI, "做一个启停/电机/控制项目"), do **not** hand-orchestrate the 20-step runbook. Call **`ScaffoldProject`** once with a single JSON `spec`; it auto-connects, creates the project, adds PLC (+optional Unified HMI) hardware, builds UDTs/DBs/tag tables, imports SCL + LAD blocks, compiles, sets up the HMI connection/screens/tags, and saves — returning a per-step report with compile error counts. This is one model turn instead of twenty, and far less error-prone.
+Use `ScaffoldProject` to create a TIA Portal V21 project from a JSON `spec`. First call it with `dryRun=true` to inspect the complete offline validation report. After validation succeeds, call it with `dryRun=false` to create the project and execute its PLC/HMI steps. The default value of `dryRun` is `true`.
 
-**Ready-made specs** (copy, then replace `__BUNDLE__` with the bundle root absolute path; all blocks/HMI are verified to compile with 0 errors):
-
-```
-templates/project-blueprints/scaffold_spec_start_stop.json   启停控制 (PLC+HMI)
-templates/project-blueprints/scaffold_spec_motor.json        电机控制 (启停闭锁 + 速度标定 + HMI)
-```
-
-Minimal spec (everything else has defaults — only `projectName` is required):
+Minimal specification:
 
 ```json
-{ "projectName": "MyProj",
-  "plcName": "PLC_1", "plcFamily": "S7-1500",
-  "hmiName": "HMI_1", "hmiSoftwarePath": "HMI_RT_1",
-  "udt": [ { /* same json as PlcBuildAndImport kind=udt */ } ],
-  "globalDb": [ { /* kind=globaldb json */ } ],
-  "tagTable": [ { /* kind=tagtable json */ } ],
-  "sclSourceFiles": [ "C:\\bundle\\templates\\plc\\scl-examples\\FB_BasicLatch.scl" ],
-  "ladDocs": [ { "importPath": "C:\\bundle\\...\\skill\\lad-cookbook", "name": "MCPVerify_FC_LAD" } ],
-  "hmiScreens": [ { "screenName": "主画面", "width": 800, "height": 480, "designJson": { /* §6.3 schema */ } } ],
-  "hmiTags": [ { "tagTableName": "Default tag table", "tagName": "Tag_Run", "hmiDataType": "Bool", "address": "%DB100.DBX0.0" } ],
-  "compile": true, "save": true }
+{
+  "projectName": "MyProj",
+  "plcName": "PLC_1",
+  "plcFamily": "S7-1500",
+  "compile": true,
+  "save": true
+}
 ```
 
-Notes:
-- Omit `hmiName` to skip all HMI. Omit any of `udt/globalDb/tagTable/sclSourceFiles/ladDocs/hmiScreens/hmiTags` to skip that part.
-- `udt/globalDb/tagTable` items are the **exact** json shapes from §6.2 (what `PlcBuildAndImport` accepts).
-- `designJson` is the §6.3 Unified HMI schema. Size the screen to the panel's native resolution (WinCC Unified PC default 800×480) or it will be clipped.
-- HMI tags: use an absolute PLC address (`%DB100.DBX0.0`, `%MD10`) so the binding read-back verifies.
-- Critical-step failures (connect/createProject/PLC device) abort and throw; per-element failures are collected in the returned `steps` so you can see exactly what to fix and re-run.
-- For per-session fast connects, keep a warm headless instance running (`_prewarm_tia.py`); see §0.
+Extend the specification using these fields:
 
-Only fall back to the manual runbook (`docs/full-project-generation-runbook.md`) when the user needs something `ScaffoldProject` does not cover.
+- `udt`, `globalDb` and `tagTable`: arrays of the PLC builder objects described in §6.2.
+- `sclSourceFiles`: paths to existing `.scl` sources; `ladDocs`: objects with `importPath` and `name` identifying existing `.s7dcl` documents.
+- `hmiName`: the HMI device to create or update. `hmiSoftwarePath` selects a software path within that device when explicit selection is needed.
+- `hmiScreens`: objects containing `screenName`, optional panel dimensions and the §6.3 `designJson` object.
+- `hmiTags`: objects containing `tagName` and the PLC symbol/address binding fields. Bind tags to verified PLC symbols or addresses.
+
+Every execution validates the entire specification before connecting to TIA or opening/creating a project. Field types are checked explicitly; omitted fields use their documented defaults. The returned `steps` report identifies validation errors and failed operations. A dependent operation runs after its preceding operation succeeds.
+
+With `save=true`, the workflow saves once all requested steps succeed. After a failed step, the project retains its current in-memory changes for inspection; use `SaveProject` after reviewing and completing the work. `save=false` keeps changes in memory, and `compile=false` skips the PLC compilation step.
+
+The CLI commands `tia gen` and `tia patch` share this validation and execution logic. `tia patch` selects the existing V21 project through `projectPath`. Use individual tools for additional engineering operations, following the read, write, compile and save sequence in §0.
 
 ## 1. Tool layers
 

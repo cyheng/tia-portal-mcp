@@ -397,7 +397,7 @@ Used by `tia gen` (build from zero) and `tia patch` (upsert into existing).
   plcMlfb         string  exact order number (optional).
   hmiName         string  omit to skip all HMI.
   hmiFamily       string  default WinCCUnifiedPC.
-  hmiSoftwarePath string  blank = auto-probe.
+  hmiSoftwarePath string  optional software path within hmiName; resolved uniquely.
   connectionName  string  default HMI_Connection_1.
   udt[]           objects same shape as BuildPlcUdt / PlcBuildAndImport.
   globalDb[]      objects same shape as BuildPlcGlobalDb.
@@ -406,10 +406,14 @@ Used by `tia gen` (build from zero) and `tia patch` (upsert into existing).
   ladDocs[]       {importPath, name}  S7DCL document import.
   hmiScreens[]    {screenName, width, height, designJson(object)}.
   hmiTags[]       {tagTableName?, tagName, hmiDataType?, plcTag?, address?}.
-  compile         bool   default true.
-  save            bool   default true.
+  compile         bool   default true; compile PLC after imports.
+  save            bool   default true; save once all requested steps succeed.
 
 NOTES
+  * Every run validates the complete spec before opening or creating a project.
+  * --dry-run returns the offline validation report.
+  * Supply declared JSON/YAML types; quoted YAML values retain their string value.
+  * Step failures preserve the current in-memory project for inspection.
   * Set width/height to the panel's native resolution or the screen is clipped.
   * Use absolute addresses (%M..) for hmiTags to pass read-back verification.
   * patch --no-overwrite protects hand-edited LAD code blocks (imported as None);

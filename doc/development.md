@@ -34,6 +34,18 @@ dotnet restore .\tests\TiaMcpServer.Tests\TiaMcpServer.Tests.csproj
 dotnet run --project .\tests\TiaMcpServer.Tests\TiaMcpServer.Tests.csproj -c Release --no-restore
 ~~~
 
+离线检查直接执行与主服务共用的规格解析、步骤判定和配置代码。工程流程用测试委托提供初始化、导入、编译和保存结果，覆盖预演、全量预检失败、子步骤失败和自动保存条件。涉及这些逻辑的修改应同时补充正常输入、边界输入及失败响应的回归用例。
+
+共享工程核心的覆盖率使用 Coverlet 测量。首次安装工具并在完成上述 Release 测试构建后执行：
+
+~~~powershell
+$coverageTools = Join-Path $env:TEMP 'tia-mcp-coverage-tools'
+dotnet tool install coverlet.console --version 6.0.4 --tool-path $coverageTools
+& "$coverageTools\coverlet.exe" .\tests\TiaMcpServer.Tests\bin\Release\net8.0\TiaMcpServer.Tests.dll --target dotnet --targetargs '.\tests\TiaMcpServer.Tests\bin\Release\net8.0\TiaMcpServer.Tests.dll' --include-test-assembly --include '[TiaMcpServer.Tests]TiaMcpServer.ModelContextProtocol.Project*' --format cobertura --output .\coverage\project-workflow.xml --threshold 80 --threshold-type line --threshold-stat total
+~~~
+
+该过滤器统计 `ProjectSpecification.cs` 和 `ProjectWorkflow.cs`，行覆盖率门槛为 80%。测试工程通过源文件链接运行生产逻辑，因此使用 `--include-test-assembly` 采集这些代码的覆盖率。
+
 ## GitHub Actions
 
 .github/workflows/ci.yml 在 GitHub 托管的 Windows Runner 上执行离线测试和发布文件检查，触发于 main/master 的 Push、Pull Request 或手动运行。主服务构建由安装了 TIA Portal V21 Openness 的 Self-hosted Runner 执行。

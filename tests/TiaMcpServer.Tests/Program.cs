@@ -50,6 +50,13 @@ namespace TiaMcpServer.Tests
             ProjectFilePathTests.Run(Check);
             V21EngineeringTests.Run(Check);
 
+            Console.WriteLine("== YAML / JSON specification loading ==");
+            SpecLoaderTests.Run(Check);
+
+            Console.WriteLine("== Project specification validation and workflow results ==");
+            ProjectSpecificationTests.Run(Check);
+            ProjectWorkflowTests.Run(Check);
+
             Console.WriteLine("== 「执行 JSON 检查」不许是复述已知事实的同义反复 ==");
             HmiTemplateLayoutExecutionCheckTests.Run(Check);
 

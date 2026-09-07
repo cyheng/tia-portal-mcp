@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text.Json.Nodes;
+using YamlDotNet.Core;
+using YamlDotNet.Core.Events;
 using YamlDotNet.Serialization;
 
 namespace TiaMcpServer.Cli
@@ -64,13 +66,16 @@ namespace TiaMcpServer.Cli
 
         public static string YamlToJson(string yaml)
         {
-            var graph = new DeserializerBuilder().Build().Deserialize<object?>(yaml);
+            var graph = new DeserializerBuilder()
+                .WithAttemptingUnquotedStringTypeDeserialization()
+                .WithNodeTypeResolver(new ScalarTypeResolver())
+                .Build()
+                .Deserialize<object?>(yaml);
             return ToNode(graph)?.ToJsonString() ?? "{}";
         }
 
-        // YamlDotNet maps mappings to Dictionary<object,object>, sequences to List<object>,
-        // and all scalars to string. We rebuild a JsonNode and infer scalar types so that
-        // the JSON we hand to ScaffoldProject re-parses numbers/bools correctly.
+        // YamlDotNet retains quoted/tagged strings and resolves plain scalars. Convert the
+        // mapping/sequence graph without inferring a string's type a second time.
         private static JsonNode? ToNode(object? o)
         {
             switch (o)
@@ -85,7 +90,7 @@ namespace TiaMcpServer.Cli
                     return obj;
                 }
                 case string s:
-                    return InferScalar(s);
+                    return JsonValue.Create(s);
                 case IEnumerable<object> list:
                 {
                     var arr = new JsonArray();
@@ -98,20 +103,29 @@ namespace TiaMcpServer.Cli
             }
         }
 
-        private static JsonNode? InferScalar(string s)
+        private sealed class ScalarTypeResolver : INodeTypeResolver
         {
-            if (s.Length == 0) return JsonValue.Create("");
-            switch (s)
+            public bool Resolve(NodeEvent? nodeEvent, ref Type currentType)
             {
-                case "null": case "Null": case "NULL": case "~": return null;
-                case "true": case "True": case "TRUE": return JsonValue.Create(true);
-                case "false": case "False": case "FALSE": return JsonValue.Create(false);
+                if (currentType != typeof(object) || nodeEvent is not Scalar scalar || !scalar.Tag.IsEmpty)
+                    return false;
+
+                if (scalar.Style != ScalarStyle.Plain)
+                {
+                    currentType = typeof(string);
+                    return true;
+                }
+
+                // YamlDotNet 13 tries float before double for untyped scalars, which can round
+                // precise values. Keep integers with its integer resolver and use double otherwise.
+                if (long.TryParse(scalar.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out _) ||
+                    ulong.TryParse(scalar.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out _) ||
+                    !double.TryParse(scalar.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+                    return false;
+
+                currentType = typeof(double);
+                return true;
             }
-            if (long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var l))
-                return JsonValue.Create(l);
-            if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var d))
-                return JsonValue.Create(d);
-            return JsonValue.Create(s);
         }
     }
 }

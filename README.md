@@ -161,7 +161,15 @@ tia version
 tia doctor
 ```
 
-CLI 支持的退出码为：`0` 成功，`1` 已执行但存在失败步骤，`2` 参数或运行错误。`tia gen` 规格的主要字段包括 `projectName`、`directoryPath`、`plcName`、`plcFamily`、`udt`、`globalDb`、`tagTable`、`sclSourceFiles`、`ladDocs`、`hmiScreens`、`hmiTags`、`compile` 和 `save`。用 `tia schema` 查看完整字段说明。
+CLI 支持的退出码为：`0` 成功，`1` 流程包含失败步骤，`2` 参数或运行错误。`tia gen` 规格的主要字段包括 `projectName`、`directoryPath`、`plcName`、`plcFamily`、`udt`、`globalDb`、`tagTable`、`sclSourceFiles`、`ladDocs`、`hmiScreens`、`hmiTags`、`compile` 和 `save`。用 `tia schema` 查看完整字段说明。
+
+`gen` 和 `patch` 共用规格校验与执行流程。每次执行先检查字段类型、PLC 构建内容、SCL/LAD 文件和 HMI 设计结构，全部预检通过后再连接并打开或创建工程。`--dry-run` 返回预检报告；实际执行返回各步骤的结果和错误信息。
+
+规格字段按声明的类型填写：`compile`、`save` 使用布尔值，`udt`、`globalDb`、`tagTable` 使用数组，`designJson` 使用对象。YAML 引号保留字符串语义，例如 `projectName: "001"` 的工程名为 `001`。字段缺省时采用默认值，字段类型错误时报告具体 JSON 路径。
+
+HMI 写入通过 `hmiName` 指定设备；`hmiSoftwarePath` 可进一步指定软件路径。解析范围限定在该设备内，路径歧义会作为步骤错误返回。
+
+`save` 默认为 `true`，全部请求步骤成功后自动保存一次。步骤失败时，工程保留当前内存状态，报告列出失败项；检查和修正后可显式调用 `SaveProject`。`save: false` 用于保留待检查的内存修改，`compile: false` 用于跳过本次 PLC 编译步骤。
 
 ## MCP 使用顺序
 
@@ -177,7 +185,7 @@ Bootstrap
   -> SaveProject
 ```
 
-`Bootstrap` 是只读环境和状态检查，不会自动连接 TIA Portal。写入操作前必须先读取实际项目树和软件路径，避免猜测 PLC/HMI 名称。任何写入后都应编译并保存；项目不会自动保存。
+`Bootstrap` 提供只读环境和状态检查。通过 `Connect` 建立会话后，先读取实际项目树和软件路径，再操作其中的 PLC/HMI 对象。单项工具写入后应调用编译和保存工具；`ScaffoldProject` 与 `PatchProject` 按规格中的 `compile`、`save` 字段完成相应步骤。
 
 编写 PLC 代码前使用 `GetAuthoringGuide` 获取经过验证的 SCL/LAD 语法。LAD 推荐使用带 UTF-8 BOM 的 `.s7dcl` 与 `.s7res` 文本导入；不要手写 SimaticML 的 FlgNet 梯形图 XML。SCL 外部源通过 `ImportPlcExternalSource` 和 `GenerateBlocksFromExternalSource` 导入，编码和现有块覆盖规则应以 `GetAuthoringGuide` 返回的说明为准。
 
@@ -192,7 +200,7 @@ Bootstrap
 
 ## 离线测试与验证
 
-测试、CI 和 Release 构建说明请参阅 [doc/development.md](doc/development.md)。离线测试不会启动 TIA Portal，也不替代真实项目的编译、保存、在线监控或下载验证。
+测试、CI 和 Release 构建说明请参阅 [doc/development.md](doc/development.md)。离线检查覆盖规格校验、步骤编排及独立构建逻辑；真实项目的编译、保存、在线监控和下载验证在 TIA Portal V21 环境中完成。
 
 ## 架构
 
