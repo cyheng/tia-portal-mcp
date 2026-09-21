@@ -230,6 +230,185 @@ namespace TiaMcpServer.Siemens
             }
         }
 
+        /// <summary>
+        /// 原地重命名**一个** PLC 变量（PlcTag）：在同一张变量表内把 <paramref name="oldName"/> 改成
+        /// <paramref name="newName"/>，地址、数据类型、注释原样保留。dryRun=true（默认）只解析目标变量
+        /// 并报告，一行工程都不动。
+        ///
+        /// 为什么是原地改 Name 而不是「删旧建新」或「导出 XML 改完重导入」：TIA 的符号引用绑的是
+        /// 对象身份，不是字符串。原地改 Name，块逻辑里对该符号的引用由 Openness 自动同步到新名；
+        /// 换一个新对象（删旧建新 / 重新导入）则旧引用全部断裂，那不是「重命名」是「替换」。
+        ///
+        /// 成功口径（和删除族一致，绝不吞成空成功）：
+        ///   · Portal 抛异常 → 工具层转 McpException，不当成功报；
+        ///   · TrySetProperty 返回 false（Name 不可写或被 Openness 拒绝）→ 抛异常，不当成功报；
+        ///   · 改完回读没确认 oldName 消失且 newName 出现 → Ok=false + 消息明写「未验证」。
+        /// </summary>
+        public JsonObject RenamePlcTag(string softwarePath, string tagTableName, string oldName, string newName, bool dryRun)
+        {
+            // 参数校验先于连接检查：离线也走得到，才能判断它不是死代码（对齐删除族）。
+            if (string.IsNullOrWhiteSpace(tagTableName))
+                throw new PortalException(PortalErrorCode.InvalidParams, "RenamePlcTag: tagTableName is empty");
+            if (string.IsNullOrWhiteSpace(oldName))
+                throw new PortalException(PortalErrorCode.InvalidParams, "RenamePlcTag: oldName is empty");
+            if (string.IsNullOrWhiteSpace(newName))
+                throw new PortalException(PortalErrorCode.InvalidParams, "RenamePlcTag: newName is empty");
+            if (string.Equals(oldName, newName, StringComparison.Ordinal))
+                throw new PortalException(PortalErrorCode.InvalidParams,
+                    $"RenamePlcTag: newName '{newName}' equals oldName — nothing to rename");
+            // 空格和路径分隔符绝不可能是合法 TIA 变量名，提前拦掉给个干净错误；其余字符交给 Openness 裁决。
+            if (newName.IndexOfAny(new[] { ' ', '/', '\\' }) >= 0)
+                throw new PortalException(PortalErrorCode.InvalidParams,
+                    $"RenamePlcTag: newName '{newName}' contains a space or path separator — not a valid TIA tag name");
+
+            if (IsProjectNull())
+                throw new PortalException(PortalErrorCode.InvalidState,
+                    "RenamePlcTag: no project is open. Connect / AttachToOpenProject first.");
+
+            var plc = GetPlcSoftware(softwarePath);
+            if (plc == null)
+                throw new PortalException(PortalErrorCode.NotFound,
+                    $"RenamePlcTag: PLC software not found at '{softwarePath}'." + AvailablePlcPathsSuffix());
+
+            var group = ResolvePlcTagTableGroup(plc);
+            if (group == null)
+                throw new PortalException(PortalErrorCode.NotFound,
+                    $"RenamePlcTag: tag table group not found on '{softwarePath}' (plcType={plc.GetType().FullName})");
+
+            // 走和删除族同一棵树、同一套匹配规则（裸名或组限定路径都吃），并拿回解析后的组限定路径。
+            var wanted = tagTableName.Replace('\\', '/').Trim('/');
+            var table = FindTagTableWithPath(group, string.Empty, wanted,
+                new HashSet<object>(ReferenceEqualityComparer.Instance), out var resolvedPath);
+            if (table == null)
+            {
+                var known = GetPlcTagTables(softwarePath) ?? new List<string>();
+                throw new PortalException(PortalErrorCode.NotFound,
+                    $"RenamePlcTag: no tag table named '{tagTableName}' in '{softwarePath}'" +
+                    (known.Count > 0 ? ". Available: " + string.Join(", ", known) : " (this PLC has no tag tables)"),
+                    known);
+            }
+
+            var tags = TryGetPropertyValue(table, "Tags");
+            if (tags is not IEnumerable || tags is string)
+                throw new PortalException(PortalErrorCode.OpennessError,
+                    $"RenamePlcTag: Tags collection not readable on table '{resolvedPath}' (type={table.GetType().FullName})");
+
+            // 一次遍历同时干三件事：找 oldName 的目标、检查 newName 重名、收集表内变量名用于报错。
+            object? target = null;
+            string? caseInsensitiveMatch = null;
+            var tagNames = new List<string>();
+            bool newNameExists = false;
+            foreach (var tag in (IEnumerable)tags)
+            {
+                if (tag == null) continue;
+                var n = TryGetPropertyValue(tag, "Name")?.ToString() ?? "";
+                if (n.Length == 0) continue;
+                tagNames.Add(n);
+                if (string.Equals(n, oldName, StringComparison.Ordinal))
+                    target = tag;
+                else if (string.Equals(n, newName, StringComparison.Ordinal))
+                    newNameExists = true;
+                else if (caseInsensitiveMatch == null && string.Equals(n, oldName, StringComparison.OrdinalIgnoreCase))
+                    caseInsensitiveMatch = n;
+            }
+
+            if (target == null)
+            {
+                // 打错大小写和「变量确实不存在」是两件事，给个最接近的提示。
+                throw new PortalException(PortalErrorCode.NotFound,
+                    $"RenamePlcTag: tag '{oldName}' not found in table '{resolvedPath}'" +
+                    (caseInsensitiveMatch != null ? $". Did you mean '{caseInsensitiveMatch}'? (case-sensitive match required)" : "") +
+                    (tagNames.Count > 0 ? ". Tags in this table: " + string.Join(", ", tagNames.Take(50)) : " (this table has no tags)"),
+                    tagNames);
+            }
+
+            if (newNameExists)
+                throw new PortalException(PortalErrorCode.InvalidParams,
+                    $"RenamePlcTag: a tag named '{newName}' already exists in table '{resolvedPath}'. Tag names must be unique within a table.");
+
+            var dataType = TryGetPropertyValue(target, "DataTypeName")?.ToString() ?? "";
+            var address = TryGetPropertyValue(target, "LogicalAddress")?.ToString() ?? "";
+            var comment = TryGetPropertyValue(target, "Comment")?.ToString() ?? "";
+
+            var result = new JsonObject
+            {
+                ["softwarePath"] = softwarePath,
+                ["requestedTagTableName"] = tagTableName,
+                ["resolvedTagTablePath"] = resolvedPath,
+                ["oldName"] = oldName,
+                ["newName"] = newName,
+                ["dataType"] = dataType,
+                ["logicalAddress"] = address,
+                ["comment"] = comment,
+                ["tableTagCount"] = tagNames.Count,
+                ["dryRun"] = dryRun,
+                ["renamed"] = false,
+                ["verified"] = false
+            };
+
+            var warnings = new JsonArray
+            {
+                "重命名是符号级改动：Openness 会把块逻辑里对该符号的引用同步到新名，"
+                + "但 HMI 画面按符号名绑定 PLC 变量，那层连接要单独核对。",
+                "改完务必 CompileSoftware 看 PLC 侧有无断链，核对 HMI 画面变量，最后 SaveProject。"
+            };
+
+            // 交叉引用 best-effort：tag 表级 CrossReferenceService 在 V21 上拿不到（见 TryGetTagTableCrossReferences），
+            // 查不到必须说清楚是「查不了」而不是「没人用」——和删除族同一口径。
+            var refs = TryGetTagTableCrossReferences(table, resolvedPath, out var crossRefReason);
+            result["crossReferenceAvailable"] = refs != null;
+            result["crossReferenceUnavailableReason"] = crossRefReason;
+            if (refs != null)
+            {
+                result["crossReferences"] = ToCrossReferenceArray(refs);
+                result["crossReferenceCount"] = refs.Count;
+            }
+            else
+            {
+                result["crossReferences"] = null;
+                result["crossReferenceCount"] = null;
+                warnings.Add("⚠️ 没有查到这张表的交叉引用（原因见 crossReferenceUnavailableReason）。"
+                    + "这不等于没人引用这个变量。要确认影响面，请对可能用到该符号的块逐个 GetCrossReferences。");
+            }
+            result["warnings"] = warnings;
+
+            if (dryRun) return result;
+
+            // 执行：反射直设 Name。TrySetProperty 检查 CanWrite + 类型强转，失败（只读 / Openness 拒绝）返回 false。
+            var setNameOk = TrySetProperty(target, "Name", newName);
+            if (!setNameOk)
+            {
+                throw new PortalException(PortalErrorCode.OpennessError,
+                    $"RenamePlcTag: failed to set Name on tag '{oldName}' (type={target.GetType().FullName}). "
+                    + "PlcTag.Name may be read-only in this Openness build, or the new name was rejected. No change was made.");
+            }
+
+            // 回读校验：重新遍历 Tags，确认 oldName 不在、newName 在。对象身份没变，不用重新取句柄。
+            var tags2 = TryGetPropertyValue(table, "Tags");
+            bool oldGone = true, newPresent = false;
+            if (tags2 is IEnumerable e2 and not string)
+            {
+                foreach (var tag in e2)
+                {
+                    if (tag == null) continue;
+                    var n = TryGetPropertyValue(tag, "Name")?.ToString() ?? "";
+                    if (oldGone && string.Equals(n, oldName, StringComparison.Ordinal)) oldGone = false;
+                    if (!newPresent && string.Equals(n, newName, StringComparison.Ordinal)) newPresent = true;
+                    if (!oldGone && newPresent) break;
+                }
+            }
+
+            result["renamed"] = true;
+            result["verified"] = oldGone && newPresent;
+            if (!(oldGone && newPresent))
+            {
+                throw new PortalException(PortalErrorCode.OpennessError,
+                    $"RenamePlcTag: Name was set but read-back could not confirm the rename "
+                    + $"(oldNameGone={oldGone}, newNamePresent={newPresent}). Verify in TIA manually.");
+            }
+            return result;
+        }
+
         public List<string>? GetPlcWatchTables(string softwarePath)
         {
             if (IsProjectNull()) return null;

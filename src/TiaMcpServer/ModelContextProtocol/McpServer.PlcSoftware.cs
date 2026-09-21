@@ -1,6 +1,7 @@
 ﻿using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Text.Json.Nodes;
@@ -253,6 +254,107 @@ namespace TiaMcpServer.ModelContextProtocol
             catch (Exception ex) when (ex is not McpException)
             {
                 throw new McpException($"Unexpected error importing PLC tag table: {ex.Message}{McpHints.Recovery(ex)}", ex, McpErrorCode.InternalError);
+            }
+        }
+
+        [McpServerTool(Name = "RenamePlcTag"), Description(
+            "[L1][PLC-Software] Rename ONE PLC tag (variable) in place inside a tag table: changes the tag's symbolic "
+            + "name from oldName to newName while keeping its address, data type and comment. This is a SYMBOL-LEVEL "
+            + "rename, so Openness automatically updates every reference to that symbol in block logic. HMI panels bind "
+            + "PLC tags by symbolic name, so HMI bindings must be checked separately afterwards (tag-table-level cross "
+            + "references are not available on V21 - see the response). Defaults to dryRun=true, which resolves the tag "
+            + "and reports its current attributes plus cross references without changing anything. Before dryRun=false, "
+            + "review the preview; afterwards run CompileSoftware, check HMI screen tags, then SaveProject. newName must "
+            + "be unique in the table and a valid TIA tag name (no spaces, no path separators). To rename a whole tag "
+            + "TABLE, there is no tool yet - rename tags individually, or export/reimport the table.")]
+        public static ResponseJsonReport RenamePlcTag(
+            [Description("softwarePath: path in the project structure to the PLC software, e.g. 'PLC_1'")] string softwarePath,
+            [Description("tagTableName: bare table name, or the group-qualified path from GetPlcTagTables (e.g. 'Drives/VFD tags')")] string tagTableName,
+            [Description("oldName: exact current name of the tag to rename (case-sensitive)")] string oldName,
+            [Description("newName: new symbolic name; must be unique in the table and a valid TIA tag name (no spaces, no path separators)")] string newName,
+            [Description("dryRun: true (default) only resolves the tag and reports; false performs the rename and read-back verifies it")] bool dryRun = true)
+        {
+            try
+            {
+                var data = Portal.RenamePlcTag(softwarePath, tagTableName, oldName, newName, dryRun);
+                bool renamed = data["renamed"]?.GetValue<bool>() ?? false;
+                bool verified = data["verified"]?.GetValue<bool>() ?? false;
+                bool crossRefOk = data["crossReferenceAvailable"]?.GetValue<bool>() ?? false;
+
+                var warnings = new List<string>();
+                if (data["warnings"] is JsonArray rawWarnings)
+                    warnings.AddRange(rawWarnings.Select(w => w?.GetValue<string>()).Where(w => w != null)!);
+
+                string message;
+                bool ok;
+                if (dryRun)
+                {
+                    // 预览路径：工程一行没动。交叉引用是预览的核心价值，取不到必须明说，
+                    // 否则「成功」会被读成「确认可以改」——和删除族同一口径。
+                    ok = true;
+                    message = $"[dryRun] 未做任何改动。将把变量表 '{data["resolvedTagTablePath"]}' 中的变量 '{oldName}' 重命名为 '{newName}'"
+                            + $"（类型 {data["dataType"]},地址 {data["logicalAddress"]}）。"
+                            + (crossRefOk
+                                ? $"交叉引用 {data["crossReferenceCount"]} 条（见 data.crossReferences）。"
+                                : "⚠️ 交叉引用查不到 —— 这不等于没人引用它，请先自行核对。")
+                            + "确认 newName 拼写与命名规范后用 dryRun=false 实际执行。";
+                }
+                else if (renamed && verified)
+                {
+                    ok = true;
+                    message = $"变量 '{oldName}' 已重命名为 '{newName}'（表 '{data["resolvedTagTablePath"]}'），并已重新读回确认。"
+                            + "Openness 会自动同步块逻辑里对该符号的引用；HMI 侧按符号名绑定的连接请单独核对。";
+                }
+                else
+                {
+                    // 改了但回读没确认。绝不当成功报——和删除族「未验证」口径一致。
+                    ok = false;
+                    message = $"⚠️ 未验证：变量 '{oldName}' 的重命名结果无法确认（renamed={renamed}, verified={verified}）。"
+                            + "请在 TIA 里手工确认该变量当前的名字，不要按「已重命名」继续操作。";
+                    warnings.Add("重命名后的回读确认没有通过，本次结果不可信。");
+                }
+
+                return new ResponseJsonReport
+                {
+                    Ok = ok,
+                    Message = message,
+                    Data = data,
+                    Warnings = warnings.Count > 0 ? warnings.ToArray() : null,
+                    Meta = new JsonObject
+                    {
+                        ["timestamp"] = DateTime.Now,
+                        ["success"] = ok,
+                        ["dryRun"] = dryRun,
+                        ["renamed"] = renamed,
+                        ["verified"] = verified,
+                        ["crossReferenceAvailable"] = crossRefOk,
+                        ["nextActions"] = dryRun
+                            ? new JsonArray
+                            {
+                                "确认 newName 拼写与命名规范",
+                                "GetCrossReferences 相关块 —— 看谁在用这个符号",
+                                "确认后 RenamePlcTag(dryRun=false)"
+                            }
+                            : new JsonArray
+                            {
+                                "CompileSoftware —— 看 PLC 侧有无断链",
+                                "⚠️ HMI 画面变量绑定编译查不出来，请单独核对",
+                                "SaveProject —— 确认无误后再存盘"
+                            }
+                    }
+                };
+            }
+            catch (PortalException pex)
+            {
+                throw new McpException(
+                    $"Failed renaming PLC tag '{oldName}' to '{newName}' in '{tagTableName}' [{pex.Code}]: {pex.Message}",
+                    pex, McpErrorCode.InternalError);
+            }
+            catch (Exception ex) when (ex is not McpException)
+            {
+                throw new McpException(
+                    $"Unexpected error renaming PLC tag '{oldName}' to '{newName}': {ex.Message}{McpHints.Recovery(ex)}",
+                    ex, McpErrorCode.InternalError);
             }
         }
 

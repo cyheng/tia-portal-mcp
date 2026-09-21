@@ -111,7 +111,7 @@ L1  Connect, Disconnect, AttachToOpenProject, OpenProject, CreateProject,
     DownloadToPlc, CheckDownloadReadiness, GoOnline, GoOffline, GetOnlineState,
     EnsureOpennessUserGroup, ListPortalProcessProjects, GetProject,
     GetDevices, AddDeviceWithFallback, SearchHardwareCatalog,
-    ImportBlock, ImportType, ImportPlcTagTable,
+    ImportBlock, ImportType, ImportPlcTagTable, RenamePlcTag,
     ConnectDeviceNodesToProfinetSubnet, ValidateAutomationContext
 ```
 

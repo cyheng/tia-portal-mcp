@@ -40,6 +40,9 @@ namespace TiaMcpServer.ModelContextProtocol
             // L1 — build / import / compile
             "ScaffoldProject", "PlcBuildAndImport", "ImportBlock", "ImportType",
             "ImportPlcTagTable", "WritePlcSclSourceFile",
+            // 单变量原地重命名：和 ImportPlcTagTable 同级（L1 标签写操作），单变量粒度比整表
+            // 导入更轻、更可控，放 lite 让默认档就能改一个变量名，不必 FindTools 绕路。
+            "RenamePlcTag",
             "CompileSoftware", "CompileAndDiagnosePlc",
             // The HMI counterpart. Without it a lite session can generate Unified screens but
             // cannot read its own HMI compile errors, so it has to hand the project back to the
