@@ -161,9 +161,9 @@ namespace TiaMcpServer.ModelContextProtocol
         [McpServerTool(Name = "CallTool"), Description(
             "[L0][Meta] Invoke ANY tool in the full roster by name, including ones not listed in this session. " +
             "Use FindTools first to get the exact name and parameter signature. " +
-            "Behaves exactly like calling the tool directly: same work, same result, same safety checks. " +
+            "Behaves exactly like calling the tool directly: same work, same result, same safety checks; the inner tool's result is in the 'result' field as structured JSON. " +
             "Example: name='ExportPlcWatchTable', argumentsJson='{\"softwarePath\":\"PLC_1\",\"watchTableName\":\"WT1\"}'.")]
-        public static ResponseMessage CallTool(
+        public static ResponseCallTool CallTool(
             [Description("name: exact tool name from FindTools, e.g. 'ExportPlcWatchTable'.")] string name,
             [Description("argumentsJson: JSON object of the tool's arguments, e.g. '{\"softwarePath\":\"PLC_1\"}'. Omit or '{}' for a no-argument tool.")] string argumentsJson = "")
         {
@@ -171,11 +171,11 @@ namespace TiaMcpServer.ModelContextProtocol
             try
             {
                 if (target.Length == 0)
-                    return new ResponseMessage { Message = "CallTool: 'name' is required. Call FindTools to look up a tool name.", Meta = BridgeMeta(false) };
+                    return new ResponseCallTool { Message = "CallTool: 'name' is required. Call FindTools to look up a tool name.", Meta = BridgeMeta(false) };
 
                 // Self-recursion would be a loop with no purpose; refuse it explicitly.
                 if (string.Equals(target, "CallTool", StringComparison.OrdinalIgnoreCase))
-                    return new ResponseMessage { Message = "CallTool cannot invoke itself. Pass the target tool's own name.", Meta = BridgeMeta(false) };
+                    return new ResponseCallTool { Message = "CallTool cannot invoke itself. Pass the target tool's own name.", Meta = BridgeMeta(false) };
 
                 var all = AllToolMethods();
                 MethodInfo? method;
@@ -195,7 +195,7 @@ namespace TiaMcpServer.ModelContextProtocol
                             .Where(x => x.Key >= 6)
                             .OrderByDescending(x => x.Key).ThenBy(x => x.Value, StringComparer.Ordinal)
                             .Take(5).Select(x => x.Value).ToList();
-                    return new ResponseMessage
+                    return new ResponseCallTool
                     {
                         Message = "No tool named '" + target + "'." + (near.Count > 0
                             ? " Did you mean: " + string.Join(", ", near) + "?"
@@ -215,7 +215,7 @@ namespace TiaMcpServer.ModelContextProtocol
                     try { parsed = JsonNode.Parse(argumentsJson); }
                     catch (JsonException jx)
                     {
-                        return new ResponseMessage
+                        return new ResponseCallTool
                         {
                             Message = "argumentsJson is not valid JSON (" + jx.Message + "). It must be a JSON OBJECT of the " +
                                       "tool's parameters, e.g. {\"softwarePath\":\"PLC_1\"} - not a bare value, not the tool name.",
@@ -224,7 +224,7 @@ namespace TiaMcpServer.ModelContextProtocol
                     }
                     JsonObject? obj = parsed as JsonObject;
                     if (obj == null)
-                        return new ResponseMessage
+                        return new ResponseCallTool
                         {
                             Message = "argumentsJson must be a JSON object, e.g. {\"softwarePath\":\"PLC_1\"}. " +
                                       "Expected signature: " + RenderSignature(target, method!),
@@ -257,7 +257,7 @@ namespace TiaMcpServer.ModelContextProtocol
                     try { call[i] = value!.Deserialize(p.ParameterType, BridgeJson); }
                     catch (Exception cx)
                     {
-                        return new ResponseMessage
+                        return new ResponseCallTool
                         {
                             Message = "Argument '" + p.Name + "' of " + target + " could not be read as " +
                                       FriendlyTypeName(p.ParameterType) + ": " + cx.Message +
@@ -269,7 +269,7 @@ namespace TiaMcpServer.ModelContextProtocol
 
                 if (missing.Count > 0)
                 {
-                    return new ResponseMessage
+                    return new ResponseCallTool
                     {
                         Message = target + " is missing required argument(s): " + string.Join(", ", missing) +
                                   ". Expected signature: " + RenderSignature(target, method!),
@@ -278,26 +278,29 @@ namespace TiaMcpServer.ModelContextProtocol
                 }
 
                 object? result = method!.Invoke(null, call);
-                // Tools return their own strongly-typed response objects; hand that JSON through
-                // unchanged so the model sees exactly what a direct call would have produced.
-                string payload = result == null
-                    ? "null"
-                    : JsonSerializer.Serialize(result, result.GetType(), BridgeJson);
+                // Tools return their own strongly-typed response objects; hand that through as
+                // structured JSON in Result, not an escaped string in Message. Putting the inner
+                // JSON into Message serialized every quote to \" — inflating it and losing the
+                // structured parsing a direct call gives. The model reads Result directly.
+                JsonNode? resultNode = result == null
+                    ? null
+                    : JsonNode.Parse(JsonSerializer.Serialize(result, result.GetType(), BridgeJson));
 
-                return new ResponseMessage
+                return new ResponseCallTool
                 {
-                    Message = payload,
+                    Message = "Called " + target + (result == null ? " (null result)" : ""),
+                    Result = resultNode,
                     Meta = BridgeMeta(true),
                 };
             }
             catch (TargetInvocationException tie)
             {
                 var inner = tie.InnerException ?? tie;
-                return new ResponseMessage { Message = target + " failed: " + inner.Message, Meta = BridgeMeta(false) };
+                return new ResponseCallTool { Message = target + " failed: " + inner.Message, Meta = BridgeMeta(false) };
             }
             catch (Exception ex)
             {
-                return new ResponseMessage { Message = "CallTool('" + target + "') failed: " + ex.Message, Meta = BridgeMeta(false) };
+                return new ResponseCallTool { Message = "CallTool('" + target + "') failed: " + ex.Message, Meta = BridgeMeta(false) };
             }
         }
 

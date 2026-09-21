@@ -66,18 +66,18 @@ namespace TiaMcpServer.ModelContextProtocol
             }
         }
 
-        [McpServerTool(Name = "GetTypes"), Description("[L2][PLC-Software]Get a list of types from the plc software")]
+        [McpServerTool(Name = "GetTypes"), Description("[L2][PLC-Software] Get a list of PLC user data types (UDT). Returns per type: name, type, IsConsistent. Requires: Connect + OpenProject. Start with a small limit and raise it only if needed; narrow regexName to cut volume. Full per-type detail (attributes, dates, namespace) is on GetTypeInfo.")]
         public static ResponseTypes GetTypes(
             [Description("softwarePath: defines the path in the project structure to the plc software")] string softwarePath,
-            [Description("regexName: defines the name or regular expression to find the block. Use empty string (default) to find all")] string regexName = "")
+            [Description("regexName: name or regular expression to find the type. Use empty string (default) to find all")] string regexName = "",
+            [Description("limit: max types to return (default 200). When more match, the response sets truncated=true and totalCount — raise limit or narrow regexName to see them.")] int limit = 200)
         {
             try
             {
                 var list = Portal.GetTypes(softwarePath, regexName);
 
                 // null = 根本没查成（没连接/没打开项目）；空列表 = 这个 PLC 里确实没有。
-                // 以前 Portal 层无项目时返回空列表，两件事被同一个值表示，于是下面那句
-                // `if (list != null)` 恒为真、`else throw` 永不执行，离线调用得到「成功，0 个」。
+                // 以前 Portal 层无项目时返回空列表，两件事被同一个值表示，离线调用得到「成功，0 个」。
                 if (list == null)
                 {
                     throw new McpException(
@@ -87,44 +87,31 @@ namespace TiaMcpServer.ModelContextProtocol
                         McpErrorCode.InvalidParams);
                 }
 
-                var responseList = new List<ResponseTypeInfo>();
-                foreach (var type in list)
+                // 列表场景只投影 name/type/IsConsistent；Attributes 与 Description 留给 GetTypeInfo。
+                var total = list.Count;
+                var capped = limit > 0 ? list.Take(limit).ToList() : list;
+                var items = new List<TypeSummary>(capped.Count);
+                foreach (var type in capped)
                 {
-                    if (type != null)
+                    if (type == null) continue;
+                    items.Add(new TypeSummary
                     {
-                        var attributes = Helper.GetAttributeList(type);
-
-                        responseList.Add(new ResponseTypeInfo
-                        {
-                            Name = type.Name,
-                            TypeName = type.GetType().Name,
-                            Namespace = type.Namespace,
-                            IsConsistent = type.IsConsistent,
-                            ModifiedDate = type.ModifiedDate,
-                            IsKnowHowProtected = type.IsKnowHowProtected,
-                            Attributes = attributes,
-                            Description = type.ToString()
-                        });
-                    }
+                        Name = type.Name,
+                        TypeName = type.GetType().Name,
+                        IsConsistent = type.IsConsistent
+                    });
                 }
 
-                if (list != null)
+                var truncated = limit > 0 && total > items.Count;
+                return new ResponseTypes
                 {
-                    return new ResponseTypes
-                    {
-                        Message = $"Types with regex '{regexName}' retrieved from '{softwarePath}'",
-                        Items = responseList,
-                        Meta = new JsonObject
-                        {
-                            ["timestamp"] = DateTime.Now,
-                            ["success"] = true
-                        }
-                    };
-                }
-                else
-                {
-                    throw new McpException($"Failed retrieving user defined types with regex '{regexName}' in '{softwarePath}'", McpErrorCode.InternalError);
-                }
+                    Message = truncated
+                        ? $"Showing {items.Count} of {total} types with regex '{regexName}' in '{softwarePath}' (limit={limit}). Raise limit or narrow regexName to see the rest."
+                        : $"Types with regex '{regexName}' retrieved from '{softwarePath}' ({items.Count}).",
+                    Items = items,
+                    TotalCount = total,
+                    Truncated = truncated
+                };
             }
             catch (Exception ex) when (ex is not McpException)
             {
@@ -300,7 +287,7 @@ namespace TiaMcpServer.ModelContextProtocol
                     return new ResponseExportTypes
                     {
                         Message = $"No types found with regex '{regexName}' in '{softwarePath}'",
-                        Items = new List<ResponseTypeInfo>(),
+                        Items = new List<TypeSummary>(),
                         Meta = new JsonObject
                         {
                             ["timestamp"] = DateTime.Now,
@@ -328,24 +315,18 @@ namespace TiaMcpServer.ModelContextProtocol
                 var exportedTypes = await Task.Run(() => Portal.ExportTypes(softwarePath, exportPath, regexName, preservePath));
 
                 // Build list of inconsistent (skipped) types for reporting
-                var inconsistentTypeInfos = new List<ResponseTypeInfo>();
+                var inconsistentTypeInfos = new List<TypeSummary>();
                 if (allTypes != null)
                 {
                     foreach (var t in allTypes)
                     {
                         if (t != null && t.IsConsistent == false)
                         {
-                            var attrs = Helper.GetAttributeList(t);
-                            inconsistentTypeInfos.Add(new ResponseTypeInfo
+                            inconsistentTypeInfos.Add(new TypeSummary
                             {
                                 Name = t.Name,
                                 TypeName = t.GetType().Name,
-                                Namespace = t.Namespace,
-                                IsConsistent = t.IsConsistent,
-                                ModifiedDate = t.ModifiedDate,
-                                IsKnowHowProtected = t.IsKnowHowProtected,
-                                Attributes = attrs,
-                                Description = t.ToString()
+                                IsConsistent = t.IsConsistent
                             });
                         }
                     }
@@ -366,25 +347,18 @@ namespace TiaMcpServer.ModelContextProtocol
 
                 if (exportedTypes != null)
                 {
-                    var responseList = new List<ResponseTypeInfo>();
+                    var responseList = new List<TypeSummary>();
                     var processedCount = 0;
                     
                     foreach (var type in exportedTypes)
                     {
                         if (type != null)
                         {
-                            var attributes = Helper.GetAttributeList(type);
-
-                            responseList.Add(new ResponseTypeInfo
+                            responseList.Add(new TypeSummary
                             {
                                 Name = type.Name,
                                 TypeName = type.GetType().Name,
-                                Namespace = type.Namespace,
-                                IsConsistent = type.IsConsistent,
-                                ModifiedDate = type.ModifiedDate,
-                                IsKnowHowProtected = type.IsKnowHowProtected,
-                                Attributes = attributes,
-                                Description = type.ToString()
+                                IsConsistent = type.IsConsistent
                             });
                         }
                         processedCount++;

@@ -108,7 +108,7 @@ namespace TiaMcpServer.ModelContextProtocol
                     return new ResponseExportBlocksAsDocuments
                     {
                         Message = $"No blocks found with regex '{regexName}' in '{softwarePath}'",
-                        Items = new List<ResponseBlockInfo>(),
+                        Items = new List<BlockSummary>(),
                         Meta = new JsonObject
                         {
                             ["timestamp"] = DateTime.Now,
@@ -150,28 +150,19 @@ namespace TiaMcpServer.ModelContextProtocol
 
                 if (exportedBlocks != null)
                 {
-                    var responseList = new List<ResponseBlockInfo>();
+                    var responseList = new List<BlockSummary>();
                     var processedCount = 0;
                     
                     foreach (var block in exportedBlocks)
                     {
                         if (block != null)
                         {
-                            var attributes = Helper.GetAttributeList(block);
-
-                            responseList.Add(new ResponseBlockInfo
+                            responseList.Add(new BlockSummary
                             {
                                 Name = block.Name,
                                 TypeName = block.GetType().Name,
-                                Namespace = block.Namespace,
                                 ProgrammingLanguage = Enum.GetName(typeof(ProgrammingLanguage), block.ProgrammingLanguage),
-                                MemoryLayout = Enum.GetName(typeof(MemoryLayout), block.MemoryLayout),
-                                IsConsistent = block.IsConsistent,
-                                HeaderName = block.HeaderName,
-                                ModifiedDate = block.ModifiedDate,
-                                IsKnowHowProtected = block.IsKnowHowProtected,
-                                Attributes = attributes,
-                                Description = block.ToString()
+                                IsConsistent = block.IsConsistent
                             });
                         }
                         processedCount++;
@@ -414,7 +405,7 @@ namespace TiaMcpServer.ModelContextProtocol
                 var option = ParseImportDocumentOption(importOption);
                 var imported = await Task.Run(() => Portal.ImportBlocksFromDocuments(softwarePath, groupPath, importPath, regexName, option));
 
-                var responseList = new List<ResponseBlockInfo>();
+                var responseList = new List<BlockSummary>();
                 int processed = 0;
                 if (imported != null)
                 {
@@ -422,20 +413,12 @@ namespace TiaMcpServer.ModelContextProtocol
                     {
                         if (block != null)
                         {
-                            var attributes = Helper.GetAttributeList(block);
-                            responseList.Add(new ResponseBlockInfo
+                            responseList.Add(new BlockSummary
                             {
                                 Name = block.Name,
                                 TypeName = block.GetType().Name,
-                                Namespace = block.Namespace,
                                 ProgrammingLanguage = Enum.GetName(typeof(ProgrammingLanguage), block.ProgrammingLanguage),
-                                MemoryLayout = Enum.GetName(typeof(MemoryLayout), block.MemoryLayout),
-                                IsConsistent = block.IsConsistent,
-                                HeaderName = block.HeaderName,
-                                ModifiedDate = block.ModifiedDate,
-                                IsKnowHowProtected = block.IsKnowHowProtected,
-                                Attributes = attributes,
-                                Description = block.ToString()
+                                IsConsistent = block.IsConsistent
                             });
                         }
                         processed++;

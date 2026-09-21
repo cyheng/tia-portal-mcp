@@ -10,6 +10,13 @@ namespace TiaMcpServer.ModelContextProtocol
         public JsonObject? Meta { get; set; }
     }
 
+    /// <summary>CallTool 的返回：内层工具结果以结构化 JSON 放在 Result，避免把整份 JSON
+    /// 塞进 Message 字符串导致引号转义膨胀、又失去结构化解析。Message 只留一句调用说明。</summary>
+    public class ResponseCallTool : ResponseMessage
+    {
+        public JsonNode? Result { get; set; }
+    }
+
     public class ImportFailure
     {
         public string? Path { get; set; }
@@ -53,7 +60,6 @@ namespace TiaMcpServer.ModelContextProtocol
         public IEnumerable<string>? Errors { get; set; }
         public IEnumerable<string>? Warnings { get; set; }
         public IEnumerable<string>? Info { get; set; }
-        public IEnumerable<string>? RawMessages { get; set; }
     }
 
     public class ScaffoldStep

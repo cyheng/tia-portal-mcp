@@ -44,37 +44,44 @@ namespace TiaMcpServer.ModelContextProtocol
         }
 
         public static BlockGroupInfo BuildBlockHierarchy(PlcBlockGroup group)
+            => BuildBlockHierarchy(group, 0, new HierarchyBudget());
+
+        /// <param name="blockLimit">&lt;=0 表示不限，返回所有块明细。</param>
+        /// <param name="budget">递归全程共享的计数器；调用方读 TotalBlocks/Truncated。</param>
+        public static BlockGroupInfo BuildBlockHierarchy(PlcBlockGroup group, int blockLimit, HierarchyBudget budget)
         {
             var groupInfo = new BlockGroupInfo
             {
                 Name = group.Name
             };
 
-            var blockList = new List<ResponseBlockInfo>();
+            // 层级视图的核心是「组路径」（给 ExportBlock 用），块明细是附带。所以超 limit 时
+            // 只停发块明细、仍继续递归组——组结构完整保留，调用方靠 truncated/totalCount
+            // 知道还有块没列全，要找具体的再用 GetBlocks + regexName。
+            var blockList = new List<BlockSummary>();
             foreach (var block in group.Blocks)
             {
-                var attributes = Helper.GetAttributeList(block);
-                blockList.Add(new ResponseBlockInfo
+                budget.TotalBlocks++;
+                if (blockLimit > 0 && budget.BlocksEmitted >= blockLimit)
+                {
+                    budget.Truncated = true;
+                    continue;
+                }
+                blockList.Add(new BlockSummary
                 {
                     Name = block.Name,
                     TypeName = block.GetType().Name,
-                    Namespace = block.Namespace,
                     ProgrammingLanguage = Enum.GetName(typeof(ProgrammingLanguage), block.ProgrammingLanguage),
-                    MemoryLayout = Enum.GetName(typeof(MemoryLayout), block.MemoryLayout),
-                    IsConsistent = block.IsConsistent,
-                    HeaderName = block.HeaderName,
-                    ModifiedDate = block.ModifiedDate,
-                    IsKnowHowProtected = block.IsKnowHowProtected,
-                    Attributes = attributes,
-                    Description = block.ToString()
+                    IsConsistent = block.IsConsistent
                 });
+                budget.BlocksEmitted++;
             }
             groupInfo.Blocks = blockList;
 
             var groupList = new List<BlockGroupInfo>();
             foreach (var subGroup in group.Groups)
             {
-                groupList.Add(BuildBlockHierarchy(subGroup));
+                groupList.Add(BuildBlockHierarchy(subGroup, blockLimit, budget));
             }
             groupInfo.Groups = groupList;
 

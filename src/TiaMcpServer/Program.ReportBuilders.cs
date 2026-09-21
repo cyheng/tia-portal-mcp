@@ -1198,7 +1198,7 @@ namespace TiaMcpServer
             {
                 root["ok"] = false;
                 root["error"] = ex.InnerException?.Message ?? ex.Message;
-                root["exception"] = ex.ToString();
+                root["exception"] = ex.GetType().Name + ": " + ex.Message;
             }
 
             File.WriteAllText(jsonPath, root.ToJsonString(new System.Text.Json.JsonSerializerOptions
@@ -1322,7 +1322,7 @@ namespace TiaMcpServer
             {
                 root["ok"] = false;
                 root["error"] = ex.InnerException?.Message ?? ex.Message;
-                root["exception"] = ex.ToString();
+                root["exception"] = ex.GetType().Name + ": " + ex.Message;
             }
 
             File.WriteAllText(jsonPath, root.ToJsonString(new System.Text.Json.JsonSerializerOptions

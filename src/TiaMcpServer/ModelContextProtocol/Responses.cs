@@ -42,9 +42,24 @@ namespace TiaMcpServer.ModelContextProtocol
         public bool? IsKnowHowProtected { get; set; }
         public string? Description { get; set; }
     }
+
+    /// <summary>列表型探查工具(GetBlocks/ExportBlocks)的精简条目：只留描述点名的
+    /// name/type/language/IsConsistent 四个字段，明细走 GetBlockInfo。剥掉 Attributes 与
+    /// Description=block.ToString()——这两个在列表场景基本用不到，却能把一次早期探查撑到
+    /// 数倍体积，污染整个上下文窗口。</summary>
+    public class BlockSummary
+    {
+        public string? Name { get; set; }
+        public string? TypeName { get; set; }            // OB/FC/FB/GlobalDB/InstanceDB
+        public string? ProgrammingLanguage { get; set; }
+        public bool? IsConsistent { get; set; }          // false = must compile before export
+    }
+
     public class ResponseBlocksWithHierarchy : ResponseMessage
     {
         public BlockGroupInfo? Root { get; set; }
+        public int? TotalCount { get; set; }
+        public bool? Truncated { get; set; }
     }
 
     public class ResponseTypeInfo : ResponseAttributes
@@ -57,6 +72,15 @@ namespace TiaMcpServer.ModelContextProtocol
         public DateTime? ModifiedDate { get; set; }
         public bool? IsKnowHowProtected { get; set; }
         public string? Description { get; set; }
+    }
+
+    /// <summary>列表型探查工具(GetTypes/ExportTypes)的精简条目：只留 name/type/IsConsistent，
+    /// 明细走 GetTypeInfo。理由同 <see cref="BlockSummary"/>。</summary>
+    public class TypeSummary
+    {
+        public string? Name { get; set; }
+        public string? TypeName { get; set; }
+        public bool? IsConsistent { get; set; }
     }
 
     public class ResponseProjectInfo : ResponseAttributes
@@ -258,6 +282,8 @@ namespace TiaMcpServer.ModelContextProtocol
     public class ResponseCrossReferences : ResponseMessage
     {
         public IEnumerable<CrossReferenceEntry>? Items { get; set; }
+        public int? TotalCount { get; set; }
+        public bool? Truncated { get; set; }
     }
 
     public class ResponseNetworkInfo : ResponseMessage
@@ -460,7 +486,11 @@ namespace TiaMcpServer.ModelContextProtocol
     
     public class ResponseBlocks : ResponseMessage
     {
-        public IEnumerable<ResponseBlockInfo>? Items { get; set; }
+        public IEnumerable<BlockSummary>? Items { get; set; }
+        /// <summary>匹配 regexName 的块总数（应用 limit 截断前）。Items 被截断时 &gt; Items 计数。</summary>
+        public int? TotalCount { get; set; }
+        /// <summary>true 表示因 limit 只返回了前若干条，调高 limit 或收窄 regexName 可看全。</summary>
+        public bool? Truncated { get; set; }
     }
 
     public class ResponseExportBlock : ResponseMessage
@@ -484,13 +514,15 @@ namespace TiaMcpServer.ModelContextProtocol
 
     public class ResponseExportBlocks : ResponseMessage
     {
-        public IEnumerable<ResponseBlockInfo>? Items { get; set; }
-        public IEnumerable<ResponseBlockInfo>? Inconsistent { get; set; }
+        public IEnumerable<BlockSummary>? Items { get; set; }
+        public IEnumerable<BlockSummary>? Inconsistent { get; set; }
     }
 
     public class ResponseTypes : ResponseMessage
     {
-        public IEnumerable<ResponseTypeInfo>? Items { get; set; }
+        public IEnumerable<TypeSummary>? Items { get; set; }
+        public int? TotalCount { get; set; }
+        public bool? Truncated { get; set; }
     }
 
     public class ResponseExportType : ResponseMessage
@@ -503,8 +535,8 @@ namespace TiaMcpServer.ModelContextProtocol
 
     public class ResponseExportTypes : ResponseMessage
     {
-        public IEnumerable<ResponseTypeInfo>? Items { get; set; }
-        public IEnumerable<ResponseTypeInfo>? Inconsistent { get; set; }
+        public IEnumerable<TypeSummary>? Items { get; set; }
+        public IEnumerable<TypeSummary>? Inconsistent { get; set; }
     }
 
     public class ResponseExportAsDocuments : ResponseMessage
@@ -513,7 +545,7 @@ namespace TiaMcpServer.ModelContextProtocol
 
     public class ResponseExportBlocksAsDocuments : ResponseMessage
     {
-        public IEnumerable<ResponseBlockInfo>? Items { get; set; }
+        public IEnumerable<BlockSummary>? Items { get; set; }
     }
 
     public class ResponseImportFromDocuments : ResponseMessage
@@ -522,7 +554,7 @@ namespace TiaMcpServer.ModelContextProtocol
 
     public class ResponseImportBlocksFromDocuments : ResponseMessage
     {
-        public IEnumerable<ResponseBlockInfo>? Items { get; set; }
+        public IEnumerable<BlockSummary>? Items { get; set; }
     }
 
     public class ResponseDownload : ResponseMessage

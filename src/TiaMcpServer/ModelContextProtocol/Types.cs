@@ -13,7 +13,16 @@ namespace TiaMcpServer.ModelContextProtocol
     {
         public string? Name { get; set; }
         public IEnumerable<BlockGroupInfo>? Groups { get; set; }
-        public IEnumerable<ResponseBlockInfo>? Blocks { get; set; }
+        public IEnumerable<BlockSummary>? Blocks { get; set; }
+    }
+
+    /// <summary>BuildBlockHierarchy 限制块明细数量时的计数载体：一次递归共享一份，
+    /// 累计总块数与已输出数，调用方据此填 totalCount/truncated。blockLimit &lt;=0 表示不限。</summary>
+    public class HierarchyBudget
+    {
+        public int TotalBlocks;
+        public int BlocksEmitted;
+        public bool Truncated;
     }
 
     public class CrossReferenceEntry

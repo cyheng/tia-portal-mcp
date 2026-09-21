@@ -84,23 +84,30 @@ namespace TiaMcpServer.ModelContextProtocol
             }
         }
 
-        [McpServerTool(Name = "GetCrossReferences"), Description("[L2][PLC-Software]Get cross references for a Step7 block/type (best-effort). Requires applicable object and Openness support.")]
+        [McpServerTool(Name = "GetCrossReferences"), Description("[L2][PLC-Software] Get cross references for a Step7 block/type (best-effort). Returns per reference: source, referenced object, location, type, access. Requires applicable object and Openness support. Start with a small limit and raise it only if needed; truncated=true with totalCount means more matched.")]
         public static ResponseCrossReferences GetCrossReferences(
             [Description("softwarePath: path in the project structure to the PLC software")] string softwarePath,
             [Description("objectPath: blockPath or typePath inside the PLC software")] string objectPath,
             [Description("objectKind: Block or Type")] string objectKind = "Block",
-            [Description("filter: CrossReferenceFilter enum name (e.g. AllObjects, ObjectsWithReferences, UnusedObjects)")] string filter = "AllObjects")
+            [Description("filter: CrossReferenceFilter enum name (e.g. AllObjects, ObjectsWithReferences, UnusedObjects)")] string filter = "AllObjects",
+            [Description("limit: max cross-reference entries to return (default 200). When more match, truncated=true and totalCount give the full count.")] int limit = 200)
         {
             try
             {
                 var items = Portal.GetCrossReferences(softwarePath, objectPath, objectKind, filter);
                 if (items != null)
                 {
+                    var total = items.Count;
+                    var truncated = limit > 0 && total > limit;
+                    var shown = truncated ? items.Take(limit).ToList() : items;
                     return new ResponseCrossReferences
                     {
-                        Message = $"Cross references retrieved for {objectKind} '{objectPath}'",
-                        Items = items,
-                        Meta = new JsonObject { ["timestamp"] = DateTime.Now, ["success"] = true }
+                        Message = truncated
+                            ? $"Showing {shown.Count} of {total} cross references for {objectKind} '{objectPath}' (limit={limit}). Raise limit to see the rest."
+                            : $"Cross references retrieved for {objectKind} '{objectPath}' ({shown.Count}).",
+                        Items = shown,
+                        TotalCount = total,
+                        Truncated = truncated
                     };
                 }
 
@@ -137,9 +144,10 @@ namespace TiaMcpServer.ModelContextProtocol
             }
         }
 
-        [McpServerTool(Name = "GetPlcTagTables"), Description("[L2][PLC-Software] List all PLC tag table names. Requires: Connect + OpenProject. softwarePath from GetProjectTree (e.g. 'PLC_1'). Use before ExportPlcTagTable to get exact table names, or before ImportPlcTagTable to check for conflicts.")]
+        [McpServerTool(Name = "GetPlcTagTables"), Description("[L2][PLC-Software] List all PLC tag table names. Requires: Connect + OpenProject. softwarePath from GetProjectTree (e.g. 'PLC_1'). Use before ExportPlcTagTable to get exact table names, or before ImportPlcTagTable to check for conflicts. Start with a small limit and raise it only if needed; meta.truncated=true with meta.totalCount means more matched.")]
         public static ResponseStringList GetPlcTagTables(
-            [Description("softwarePath: path in the project structure to the PLC software")] string softwarePath)
+            [Description("softwarePath: path in the project structure to the PLC software")] string softwarePath,
+            [Description("limit: max tag table names to return (default 200). When more match, meta.truncated=true and meta.totalCount give the full count.")] int limit = 200)
         {
             try
             {
@@ -150,7 +158,7 @@ namespace TiaMcpServer.ModelContextProtocol
                     // 在这个版本上叫别的名字 / 读属性时抛了异常被吞掉。三者返回的东西
                     // 一模一样，用户报「枚举返回空但删除工具能找到同一张表」时我们手上
                     // 没有任何证据。所以空清单必须把「走过了什么」一并带回来。
-                    var meta = new JsonObject { ["timestamp"] = DateTime.Now, ["success"] = true };
+                    var meta = new JsonObject();
                     if (items.Count == 0)
                     {
                         meta["walkedGroupType"] = walk.RootGroupType;
@@ -161,16 +169,27 @@ namespace TiaMcpServer.ModelContextProtocol
                             walk.Notes.Select(x => (JsonNode)JsonValue.Create(x)!).ToArray());
                     }
 
+                    var total = items.Count;
+                    var truncated = limit > 0 && total > limit;
+                    var shown = truncated ? items.Take(limit).ToList() : items;
+                    if (truncated)
+                    {
+                        meta["totalCount"] = total;
+                        meta["truncated"] = true;
+                    }
+
                     return new ResponseStringList
                     {
-                        Message = items.Count > 0
-                            ? $"PLC tag tables listed for '{softwarePath}'"
-                            : $"'{softwarePath}' 上没有枚举到任何变量表。这**不一定**表示它没有表 —— "
-                              + "读属性失败也长这样，所以 Meta 里带了这次遍历的证据"
-                              + "（walkedGroupType / tagTablesPropertyFound / tagTablesPropertyError / groupsVisited / notes）。"
-                              + "若你确信有表，把这几项贴给维护者。",
-                        Items = items,
-                        Meta = meta
+                        Message = truncated
+                            ? $"Showing {shown.Count} of {total} PLC tag tables in '{softwarePath}' (limit={limit}). Raise limit to see the rest."
+                            : (items.Count > 0
+                                ? $"PLC tag tables listed for '{softwarePath}'"
+                                : $"'{softwarePath}' 上没有枚举到任何变量表。这**不一定**表示它没有表 —— "
+                                  + "读属性失败也长这样，所以 Meta 里带了这次遍历的证据"
+                                  + "（walkedGroupType / tagTablesPropertyFound / tagTablesPropertyError / groupsVisited / notes）。"
+                                  + "若你确信有表，把这几项贴给维护者。"),
+                        Items = shown,
+                        Meta = meta.Count > 0 ? meta : null
                     };
                 }
 

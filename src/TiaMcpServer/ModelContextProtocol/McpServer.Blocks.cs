@@ -69,18 +69,18 @@ namespace TiaMcpServer.ModelContextProtocol
             }
         }
 
-        [McpServerTool(Name = "GetBlocks"), Description("[L2][PLC-Software] Get a flat list of all blocks in PLC software. Requires: Connect + OpenProject. Use GetBlocksWithHierarchy instead when you need group/folder paths for ExportBlock. Returns: block name, number, type (OB/FC/FB/GlobalDB/InstanceDB), programming language.")]
+        [McpServerTool(Name = "GetBlocks"), Description("[L2][PLC-Software] Get a flat list of blocks in PLC software. Returns per block: name, type (OB/FC/FB/GlobalDB/InstanceDB), programming language, IsConsistent. Requires: Connect + OpenProject. Use GetBlocksWithHierarchy instead when you need group/folder paths for ExportBlock. Start with a small limit and raise it only if needed; narrow regexName to cut volume. Full per-block detail (attributes, dates, namespace) is on GetBlockInfo.")]
         public static ResponseBlocks GetBlocks(
             [Description("softwarePath: defines the path in the project structure to the plc software")] string softwarePath,
-            [Description("regexName: defines the name or regular expression to find the block. Use empty string (default) to find all")] string regexName = "")
+            [Description("regexName: name or regular expression to find the block. Use empty string (default) to find all")] string regexName = "",
+            [Description("limit: max blocks to return (default 200). When more match, the response sets truncated=true and totalCount — raise limit or narrow regexName to see them.")] int limit = 200)
         {
             try
             {
                 var list = Portal.GetBlocks(softwarePath, regexName);
 
                 // null = 根本没查成（没连接/没打开项目）；空列表 = 这个 PLC 里确实没有。
-                // 以前 Portal 层无项目时返回空列表，两件事被同一个值表示，于是下面那句
-                // `if (list != null)` 恒为真、`else throw` 永不执行，离线调用得到「成功，0 个」。
+                // 以前 Portal 层无项目时返回空列表，两件事被同一个值表示，离线调用得到「成功，0 个」。
                 if (list == null)
                 {
                     throw new McpException(
@@ -90,47 +90,33 @@ namespace TiaMcpServer.ModelContextProtocol
                         McpErrorCode.InvalidParams);
                 }
 
-                var responseList = new List<ResponseBlockInfo>();
-                foreach (var block in list)
+                // 列表场景只投影描述点名的四字段；Attributes 与 Description=block.ToString()
+                // 体积大、列表里基本用不到，留给 GetBlockInfo。早期探查不该让冗余明细撑满上下文。
+                var total = list.Count;
+                var capped = limit > 0 ? list.Take(limit).ToList() : list;
+                var items = new List<BlockSummary>(capped.Count);
+                foreach (var block in capped)
                 {
-                    if (block != null)
+                    if (block == null) continue;
+                    items.Add(new BlockSummary
                     {
-                        var attributes = Helper.GetAttributeList(block);
-
-                        responseList.Add(new ResponseBlockInfo
-                        {
-                            Name = block.Name,
-                            TypeName = block.GetType().Name,
-                            Namespace = block.Namespace,
-                            ProgrammingLanguage = Enum.GetName(typeof(ProgrammingLanguage), block.ProgrammingLanguage),
-                            MemoryLayout = Enum.GetName(typeof(MemoryLayout), block.MemoryLayout),
-                            IsConsistent = block.IsConsistent,
-                            HeaderName = block.HeaderName,
-                            ModifiedDate = block.ModifiedDate,
-                            IsKnowHowProtected = block.IsKnowHowProtected,
-                            Attributes = attributes,
-                            Description = block.ToString()
-                        });
-                    }
+                        Name = block.Name,
+                        TypeName = block.GetType().Name,
+                        ProgrammingLanguage = Enum.GetName(typeof(ProgrammingLanguage), block.ProgrammingLanguage),
+                        IsConsistent = block.IsConsistent
+                    });
                 }
 
-                if (list != null)
+                var truncated = limit > 0 && total > items.Count;
+                return new ResponseBlocks
                 {
-                    return new ResponseBlocks
-                    {
-                        Message = $"Blocks with regex '{regexName}' retrieved from '{softwarePath}'",
-                        Items = responseList,
-                        Meta = new JsonObject
-                        {
-                            ["timestamp"] = DateTime.Now,
-                            ["success"] = true
-                        }
-                    };
-                }
-                else
-                {
-                    throw new McpException($"Failed retrieving blocks with regex '{regexName}' in '{softwarePath}'", McpErrorCode.InternalError);
-                }
+                    Message = truncated
+                        ? $"Showing {items.Count} of {total} blocks with regex '{regexName}' in '{softwarePath}' (limit={limit}). Raise limit or narrow regexName to see the rest."
+                        : $"Blocks with regex '{regexName}' retrieved from '{softwarePath}' ({items.Count}).",
+                    Items = items,
+                    TotalCount = total,
+                    Truncated = truncated
+                };
             }
             catch (Exception ex) when (ex is not McpException)
             {
@@ -138,25 +124,26 @@ namespace TiaMcpServer.ModelContextProtocol
             }
         }
 
-        [McpServerTool(Name = "GetBlocksWithHierarchy"), Description("[L2][PLC-Software]Get a list of all blocks with their group hierarchy from the plc software.")]
+        [McpServerTool(Name = "GetBlocksWithHierarchy"), Description("[L2][PLC-Software] Get blocks with their group/folder hierarchy (for ExportBlock paths). Returns per block: name, type, programming language, IsConsistent, nested under their group. Requires: Connect + OpenProject. Start with a small limit and raise it only if needed; truncated=true with totalCount means some block details were omitted (group structure is still complete — use GetBlocks + regexName to find specific blocks).")]
         public static ResponseBlocksWithHierarchy GetBlocksWithHierarchy(
-        [Description("softwarePath: defines the path in the project structure to the plc software")] string softwarePath)
+        [Description("softwarePath: defines the path in the project structure to the plc software")] string softwarePath,
+        [Description("limit: max block details to include across the whole tree (default 200). Group structure is always complete; only block details are capped.")] int limit = 200)
         {
             try
             {
                 var rootGroup = Portal.GetBlockRootGroup(softwarePath);
                 if (rootGroup != null)
                 {
-                    var hierarchy = Helper.BuildBlockHierarchy(rootGroup);
+                    var budget = new HierarchyBudget();
+                    var hierarchy = Helper.BuildBlockHierarchy(rootGroup, limit, budget);
                     return new ResponseBlocksWithHierarchy
                     {
-                        Message = $"Block hierarchy retrieved from '{softwarePath}'",
+                        Message = budget.Truncated
+                            ? $"Block hierarchy retrieved from '{softwarePath}' (showing details for {budget.BlocksEmitted} of {budget.TotalBlocks} blocks; limit={limit}). Group structure is complete; use GetBlocks with regexName for specific blocks."
+                            : $"Block hierarchy retrieved from '{softwarePath}' ({budget.TotalBlocks} blocks).",
                         Root = hierarchy,
-                        Meta = new JsonObject
-                        {
-                            ["timestamp"] = DateTime.Now,
-                            ["success"] = true
-                        }
+                        TotalCount = budget.TotalBlocks,
+                        Truncated = budget.Truncated
                     };
                 }
                 else
@@ -581,7 +568,7 @@ namespace TiaMcpServer.ModelContextProtocol
             }
             catch (Exception ex) when (ex is not McpException)
             {
-                failed.Add(new ImportFailure { Path = sourceDir, Error = ex.ToString() });
+                failed.Add(new ImportFailure { Path = sourceDir, Error = ex.GetType().Name + ": " + ex.Message });
                 return BuildPlcProgramImportResponse(sourceDir, dryRun, new List<string>(), new List<string>(), new List<string>(), new List<string>(), importedTypes, importedTagTables, importedTechnologyObjects, importedBlocks, failed, compile);
             }
         }
@@ -608,7 +595,6 @@ namespace TiaMcpServer.ModelContextProtocol
                 // 「errorCount=5, errors: []」，模型看得到数字却拿不到任何一条，
                 // 还分不清是收集炸了还是本来就没明细。那正好把这个工具的立意废掉。
                 var collected = CollectCompilerMessages(result.Messages);
-                var raw = collected.Raw;
                 var errs = collected.Errors;
                 var warns = collected.Warnings;
                 var info = collected.Info;
@@ -621,20 +607,20 @@ namespace TiaMcpServer.ModelContextProtocol
                         info.Add("State=Information; Description=[诊断收集不完整] " + f);
                 }
 
+                // 摘要先行：模型常只需 Errors=0 Warnings=3 就够答用户，明细（Errors/Warnings/Info
+                // 三类，已去重）紧随其后。RawMessages 是这三类去重前的超集，同一批诊断发两遍——
+                // 这是「每次写后都要编译」的热路径，砍掉它把返回量降到约一半。
                 return new ResponseCompileDiagnose
                 {
-                    Message = $"Software '{softwarePath}' compiled. State={result.State} Errors={result.ErrorCount} Warnings={result.WarningCount}",
+                    Message = $"Software '{softwarePath}' compiled. State={result.State} Errors={result.ErrorCount} Warnings={result.WarningCount} Info={info.Count}",
                     State = result.State.ToString(),
                     ErrorCount = result.ErrorCount,
                     WarningCount = result.WarningCount,
                     Errors = errs,
                     Warnings = warns,
                     Info = info,
-                    RawMessages = raw,
                     Meta = new JsonObject
                     {
-                        ["timestamp"] = DateTime.Now,
-                        ["success"] = !result.State.ToString().Equals("Error", StringComparison.OrdinalIgnoreCase),
                         ["errorDetailCount"] = errs.Count,
                         ["warningDetailCount"] = warns.Count,
                         // 明细少于 TIA 报的条数时，调用方需要知道是「收集出了问题」
@@ -653,6 +639,11 @@ namespace TiaMcpServer.ModelContextProtocol
             }
         }
 
+        /// <summary>编译是否成功：看强类型 State（与 CompileAndDiagnoseCore 写 success 的口径一致：
+        /// State != "Error"）。内部判断直接读字段，不依赖进响应给模型的 Meta["success"]。</summary>
+        private static bool IsCompileOk(ResponseCompileDiagnose? c)
+            => c != null && !string.Equals(c.State, "Error", StringComparison.OrdinalIgnoreCase);
+
         [McpServerTool(Name = "RepairAndReimportBlock"), Description("[L2][PLC-Software]Try import a block XML; if compile fails, return diagnostics and best-effort suggestions (no destructive actions).")]
         public static ResponseRepairAndCompile RepairAndReimportBlock(
             [Description("softwarePath: PLC software path, e.g. 'PLC_1'")] string softwarePath,
@@ -670,7 +661,7 @@ namespace TiaMcpServer.ModelContextProtocol
                 if (compileAfter)
                 {
                     compile = CompileAndDiagnosePlc(softwarePath);
-                    if (compile.Meta?["success"]?.GetValue<bool>() == false)
+                    if (!IsCompileOk(compile))
                     {
                         suggestions.Add("If errors mention missing symbols, ensure PLC tag table/UDTs are imported before blocks.");
                         suggestions.Add("If block/type is inconsistent, compile PLC software once to update consistency before exporting.");
@@ -684,7 +675,7 @@ namespace TiaMcpServer.ModelContextProtocol
                     ImportError = null,
                     Compile = compile,
                     Suggestions = suggestions,
-                    Meta = new JsonObject { ["timestamp"] = DateTime.Now, ["success"] = compile == null || (compile.Meta?["success"]?.GetValue<bool>() ?? false) }
+                    Meta = new JsonObject { ["timestamp"] = DateTime.Now, ["success"] = compile == null || IsCompileOk(compile) }
                 };
             }
             catch (PortalException pex)
@@ -825,7 +816,7 @@ namespace TiaMcpServer.ModelContextProtocol
                     return new ResponseExportBlocks
                     {
                         Message = $"No blocks found with regex '{regexName}' in '{softwarePath}'",
-                        Items = new List<ResponseBlockInfo>(),
+                        Items = new List<BlockSummary>(),
                         Meta = new JsonObject
                         {
                             ["timestamp"] = DateTime.Now,
@@ -853,27 +844,19 @@ namespace TiaMcpServer.ModelContextProtocol
                 var exportedBlocks = await Task.Run(() => Portal.ExportBlocks(softwarePath, exportPath, regexName, preservePath));
 
                 // Build list of inconsistent (skipped) blocks for reporting
-                var inconsistentInfos = new List<ResponseBlockInfo>();
+                var inconsistentInfos = new List<BlockSummary>();
                 if (allBlocks != null)
                 {
                     foreach (var b in allBlocks)
                     {
                         if (b != null && b.IsConsistent == false)
                         {
-                            var attrs = Helper.GetAttributeList(b);
-                            inconsistentInfos.Add(new ResponseBlockInfo
+                            inconsistentInfos.Add(new BlockSummary
                             {
                                 Name = b.Name,
                                 TypeName = b.GetType().Name,
-                                Namespace = b.Namespace,
                                 ProgrammingLanguage = Enum.GetName(typeof(ProgrammingLanguage), b.ProgrammingLanguage),
-                                MemoryLayout = Enum.GetName(typeof(MemoryLayout), b.MemoryLayout),
-                                IsConsistent = b.IsConsistent,
-                                HeaderName = b.HeaderName,
-                                ModifiedDate = b.ModifiedDate,
-                                IsKnowHowProtected = b.IsKnowHowProtected,
-                                Attributes = attrs,
-                                Description = b.ToString()
+                                IsConsistent = b.IsConsistent
                             });
                         }
                     }
@@ -894,28 +877,19 @@ namespace TiaMcpServer.ModelContextProtocol
 
                 if (exportedBlocks != null)
                 {
-                    var responseList = new List<ResponseBlockInfo>();
+                    var responseList = new List<BlockSummary>();
                     var processedCount = 0;
-                    
+
                     foreach (var block in exportedBlocks)
                     {
                         if (block != null)
                         {
-                            var attributes = Helper.GetAttributeList(block);
-
-                            responseList.Add(new ResponseBlockInfo
+                            responseList.Add(new BlockSummary
                             {
                                 Name = block.Name,
                                 TypeName = block.GetType().Name,
-                                Namespace = block.Namespace,
                                 ProgrammingLanguage = Enum.GetName(typeof(ProgrammingLanguage), block.ProgrammingLanguage),
-                                MemoryLayout = Enum.GetName(typeof(MemoryLayout), block.MemoryLayout),
-                                IsConsistent = block.IsConsistent,
-                                HeaderName = block.HeaderName,
-                                ModifiedDate = block.ModifiedDate,
-                                IsKnowHowProtected = block.IsKnowHowProtected,
-                                Attributes = attributes,
-                                Description = block.ToString()
+                                IsConsistent = block.IsConsistent
                             });
                         }
                         processedCount++;

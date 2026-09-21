@@ -117,13 +117,13 @@ namespace TiaMcpServer.Siemens
             }
             catch (Exception ex)
             {
-                raw["error"] = ex.ToString();
+                raw["error"] = ex.GetType().Name + ": " + ex.Message;
                 return new ModelContextProtocol.ResponseGlobalLibraryProbe
                 {
                     Ok = false,
                     Message = ex.Message,
                     LibraryPath = libraryPath,
-                    Error = ex.ToString(),
+                    Error = ex.GetType().Name + ": " + ex.Message,
                     Warnings = warnings,
                     Raw = raw
                 };
@@ -357,7 +357,7 @@ namespace TiaMcpServer.Siemens
             }
             catch (Exception ex)
             {
-                error = ex.ToString();
+                error = ex.GetType().Name + ": " + ex.Message;
                 return null;
             }
         }
