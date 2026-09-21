@@ -363,6 +363,13 @@ namespace TiaMcpServer.ModelContextProtocol
             {
                 var node = JsonNode.Parse(content);
                 if (node is not JsonObject obj) return content;
+                // CallTool 把内层工具结果放在 result（结构化 JSON），落盘时优先剥它；
+                // 其它工具的正文仍在 message 字符串里，退回那条。
+                if (obj.TryGetPropertyValue("result", out var r) && (r is JsonObject || r is JsonArray))
+                {
+                    unwrapped = true;
+                    return r.ToJsonString();
+                }
                 if (!obj.TryGetPropertyValue("message", out var msg)) return content;
                 if (msg is not JsonValue v || !v.TryGetValue<string>(out var s)) return content;
                 unwrapped = true;

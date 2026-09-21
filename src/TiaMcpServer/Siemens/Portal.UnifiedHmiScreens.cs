@@ -613,7 +613,7 @@ namespace TiaMcpServer.Siemens
             }
             catch (Exception ex)
             {
-                Step("exception", false, ex.ToString());
+                Step("exception", false, ex.GetType().Name + ": " + ex.Message);
                 return new ResponseMessage { Message = "Failed creating HMI skeleton", Meta = meta };
             }
         }
@@ -1023,7 +1023,7 @@ namespace TiaMcpServer.Siemens
             {
                 return new ModelContextProtocol.ResponseObjectDescribe
                 {
-                    Message = ex.ToString(),
+                    Message = ex.GetType().Name + ": " + ex.Message,
                     ObjectKind = "HmiButtonEventScript",
                     ObjectPath = $"{hmiSoftwarePath}:{screenName}:{buttonName}:{eventType}.Script",
                     Members = Array.Empty<ModelContextProtocol.ObjectMember>()

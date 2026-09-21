@@ -379,7 +379,7 @@ namespace TiaMcpServer.Siemens
             }
             catch (Exception ex)
             {
-                meta["error"] = ex.ToString();
+                meta["error"] = ex.GetType().Name + ": " + ex.Message;
                 return new ResponseMessage { Message = $"{toolName} failed", Meta = meta };
             }
         }

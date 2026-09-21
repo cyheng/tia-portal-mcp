@@ -281,7 +281,7 @@ namespace TiaMcpServer.Siemens
                         catch (Exception ex)
                         {
                             _logger?.LogWarning(ex, $"Attach failed for TIA Portal PID={proc.Id}");
-                            LastConnectError = ex.ToString();
+                            LastConnectError = ex.GetType().Name + ": " + ex.Message;
 
                             // "这个候选连不上"（忙 / attach 超时 / 没有工程）可以换下一个；
                             // 但白名单/授权被拒换谁都一样，继续扫毫无意义且有害：扫空所有候选后
@@ -770,7 +770,7 @@ namespace TiaMcpServer.Siemens
             }
             catch (Exception ex)
             {
-                LastConnectError = ex.ToString();
+                LastConnectError = ex.GetType().Name + ": " + ex.Message;
                 return false;
             }
         }

@@ -53,7 +53,7 @@ namespace TiaMcpServer.Siemens
             }
             catch (Exception ex)
             {
-                failed.Add(new ImportFailure { Path = dir, Error = ex.ToString() });
+                failed.Add(new ImportFailure { Path = dir, Error = ex.GetType().Name + ": " + ex.Message });
                 return new ResponseImportBatch { Imported = imported, Failed = failed };
             }
         }
@@ -91,7 +91,7 @@ namespace TiaMcpServer.Siemens
             }
             catch (Exception ex)
             {
-                failed.Add(new ImportFailure { Path = dir, Error = ex.ToString() });
+                failed.Add(new ImportFailure { Path = dir, Error = ex.GetType().Name + ": " + ex.Message });
                 return new ResponseImportBatch { Imported = exported, Failed = failed };
             }
         }
@@ -134,7 +134,7 @@ namespace TiaMcpServer.Siemens
             }
             catch (Exception ex)
             {
-                failed.Add(new ImportFailure { Path = dir, Error = ex.ToString() });
+                failed.Add(new ImportFailure { Path = dir, Error = ex.GetType().Name + ": " + ex.Message });
                 return new ResponseImportBatch { Imported = imported, Failed = failed };
             }
         }
@@ -187,7 +187,7 @@ namespace TiaMcpServer.Siemens
             }
             catch (Exception ex)
             {
-                failed.Add(new ImportFailure { Path = exportDir, Error = ex.ToString() });
+                failed.Add(new ImportFailure { Path = exportDir, Error = ex.GetType().Name + ": " + ex.Message });
             }
 
             return new ResponseImportBatch { Imported = exported, Failed = failed };
@@ -266,7 +266,7 @@ namespace TiaMcpServer.Siemens
                     }
                     catch (Exception ex)
                     {
-                        failed.Add(new ImportFailure { Path = file, Error = ex.ToString() });
+                        failed.Add(new ImportFailure { Path = file, Error = ex.GetType().Name + ": " + ex.Message });
                     }
                 }
 
@@ -274,7 +274,7 @@ namespace TiaMcpServer.Siemens
             }
             catch (Exception ex)
             {
-                failed.Add(new ImportFailure { Path = dir, Error = ex.ToString() });
+                failed.Add(new ImportFailure { Path = dir, Error = ex.GetType().Name + ": " + ex.Message });
                 return new ResponseImportBatch { Imported = imported, Failed = failed };
             }
         }
@@ -316,7 +316,7 @@ namespace TiaMcpServer.Siemens
                     }
                     catch (Exception ex)
                     {
-                        failed.Add(new ImportFailure { Path = file, Error = ex.ToString() });
+                        failed.Add(new ImportFailure { Path = file, Error = ex.GetType().Name + ": " + ex.Message });
                     }
                 }
 
@@ -324,7 +324,7 @@ namespace TiaMcpServer.Siemens
             }
             catch (Exception ex)
             {
-                failed.Add(new ImportFailure { Path = dir, Error = ex.ToString() });
+                failed.Add(new ImportFailure { Path = dir, Error = ex.GetType().Name + ": " + ex.Message });
                 return new ResponseImportBatch { Imported = imported, Failed = failed };
             }
         }
@@ -461,7 +461,7 @@ namespace TiaMcpServer.Siemens
             }
             catch (Exception ex)
             {
-                failed.Add(new ImportFailure { Path = referenceDir, Error = ex.ToString() });
+                failed.Add(new ImportFailure { Path = referenceDir, Error = ex.GetType().Name + ": " + ex.Message });
                 return new ResponseSeed { Imported = imported, Failed = failed, Placeholders = placeholders };
             }
         }
@@ -544,7 +544,7 @@ namespace TiaMcpServer.Siemens
             }
             catch (Exception ex)
             {
-                error = ex.ToString();
+                error = ex.GetType().Name + ": " + ex.Message;
             }
 
             return false;
@@ -594,7 +594,7 @@ namespace TiaMcpServer.Siemens
             }
             catch (Exception ex)
             {
-                error = ex.ToString();
+                error = ex.GetType().Name + ": " + ex.Message;
                 return false;
             }
         }

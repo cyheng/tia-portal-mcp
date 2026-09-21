@@ -624,7 +624,7 @@ namespace TiaMcpServer.Siemens
             }
             catch (Exception ex)
             {
-                data["error"] = ex.ToString();
+                data["error"] = ex.GetType().Name + ": " + ex.Message;
                 return new ModelContextProtocol.ResponseJsonReport { Ok = false, Message = ex.Message, Data = data };
             }
         }

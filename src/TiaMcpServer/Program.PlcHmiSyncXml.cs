@@ -345,7 +345,7 @@ namespace TiaMcpServer
             var import = McpServer.ImportPlcProgramFromDirectory("PLC_1", importDir, compileAfter: true, stopOnImportFailure: true);
             var compile = McpServer.CompileAndDiagnosePlc("PLC_1");
 
-            var blocks = McpServer.GetBlocks("PLC_1", "Motor").Items?.ToArray() ?? Array.Empty<ResponseBlockInfo>();
+            var blocks = McpServer.GetBlocks("PLC_1", "Motor").Items?.ToArray() ?? Array.Empty<BlockSummary>();
             LogDiag("Chinese comments blocks readback: " + string.Join(",", blocks.Select(b => b.Name)));
 
             var exportDir = Path.Combine(reportDir, "exported_readback");

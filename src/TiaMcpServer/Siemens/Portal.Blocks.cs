@@ -580,7 +580,7 @@ namespace TiaMcpServer.Siemens
                     }
                     catch (Exception ex)
                     {
-                        failed.Add(new ImportFailure { Path = file, Error = ex.ToString() });
+                        failed.Add(new ImportFailure { Path = file, Error = ex.GetType().Name + ": " + ex.Message });
                     }
                 }
 
@@ -588,7 +588,7 @@ namespace TiaMcpServer.Siemens
             }
             catch (Exception ex)
             {
-                failed.Add(new ImportFailure { Path = dir, Error = ex.ToString() });
+                failed.Add(new ImportFailure { Path = dir, Error = ex.GetType().Name + ": " + ex.Message });
                 return new ResponseImportBatch { Imported = imported, Failed = failed };
             }
         }
