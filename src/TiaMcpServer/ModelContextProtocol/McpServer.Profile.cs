@@ -5,14 +5,16 @@ using System.Reflection;
 
 namespace TiaMcpServer.ModelContextProtocol
 {
-    // Tool roster size. DEFAULT = lite: ~48 essentials instead of ~200, so a small /
-    // non-expert model is not drowned in choices, hosts with a tool cap (Copilot 128,
-    // Windsurf 100) can load the server at all, and every turn carries ~8k instead of
-    // ~40k tokens of schema. Opt out per session with --profile full / TIA_MCP_PROFILE=full;
-    // reach any individual non-lite tool without opting out via FindTools + CallTool.
+    // Default to a small discovery surface. Tool schemas are loaded on demand;
+    // lite and full retain the direct-tool interface for existing clients.
     // All tools are static so no DI target is needed.
     public static partial class McpServer
     {
+        private static readonly HashSet<string> CompactToolNames = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "Bootstrap", "FindTools", "GetToolSchema", "CallTool",
+        };
+
         // Explicit allowlist (tool Name, not method name). Kept explicit on purpose:
         // membership must not silently change when a [Lx] description prefix is edited.
         // = all [L0]/[L1] tools + the golden-path tools ServerInstructions/GetAuthoringGuide
@@ -22,7 +24,7 @@ namespace TiaMcpServer.ModelContextProtocol
         {
             // L0 — the bridge to everything not listed here. Without these two, lite is a
             // dead end: the model cannot even discover that the other ~160 tools exist.
-            "FindTools", "CallTool",
+            "FindTools", "GetToolSchema", "CallTool",
             // L0 — orientation / diagnostics
             "Bootstrap", "Doctor", "GetState", "GetAuthoringGuide",
             "GenerateAcceptanceReport", "GenerateErrorReport",
@@ -68,18 +70,49 @@ namespace TiaMcpServer.ModelContextProtocol
 
         public static IList<McpServerTool> GetLiteTools()
         {
+            return GetToolsByName(LiteToolNames);
+        }
+
+        public static IList<McpServerTool> GetCompactTools()
+        {
+            return GetToolsByName(CompactToolNames);
+        }
+
+        private static IList<McpServerTool> GetToolsByName(HashSet<string> names)
+        {
             var tools = new List<McpServerTool>();
             foreach (var method in typeof(McpServer).GetMethods(BindingFlags.Public | BindingFlags.Static))
             {
                 var attr = method.GetCustomAttribute<McpServerToolAttribute>();
                 if (attr == null) continue;
                 var name = attr.Name ?? method.Name;
-                if (LiteToolNames.Contains(name))
+                if (names.Contains(name))
                 {
                     tools.Add(McpServerTool.Create(method));
                 }
             }
             return tools;
+        }
+
+        /// <summary>The same resolved roster is used by both transports and discovery.</summary>
+        public static IList<McpServerTool> GetConfiguredTools()
+        {
+            switch (ResolvedProfile())
+            {
+                case "full": return GetAllTools();
+                case "lite": return GetLiteTools();
+                default: return GetCompactTools();
+            }
+        }
+
+        public static bool IsToolListed(string name)
+        {
+            switch (ResolvedProfile())
+            {
+                case "full": return AllToolMethods().ContainsKey(name);
+                case "lite": return LiteToolNames.Contains(name);
+                default: return CompactToolNames.Contains(name);
+            }
         }
 
         /// <summary>
@@ -99,14 +132,8 @@ namespace TiaMcpServer.ModelContextProtocol
         }
 
         // ---- Profile resolution -----------------------------------------------------------------
-        // LITE IS THE DEFAULT. Measured on the V21 engine: the full roster is ~200 tools /
-        // ~160 KB of JSON schema (~40k tokens) that every host re-sends to the model on EVERY
-        // turn, before any work happens. Lite is ~48 tools / ~35 KB (~8k tokens).
-        // It is also a hard compatibility wall, not just a cost: VS Code / Copilot refuse to
-        // run agent mode above 128 tools and Windsurf is capped at 100, so the full roster
-        // simply does not load there. Nothing is lost by defaulting to lite — FindTools /
-        // CallTool (McpServer.ToolBridge.cs) reach every one of the other tools on demand.
-        // Precedence: --profile flag > TIA_MCP_PROFILE env > lite.
+        // Precedence: --profile flag > TIA_MCP_PROFILE env > compact.
+        // Unknown values stay compact so a typo cannot load the full catalog.
         private static string? _profileOverride;
 
         /// <summary>Applies the CLI --profile flag. Wins over TIA_MCP_PROFILE. Call before building the host.</summary>
@@ -115,19 +142,16 @@ namespace TiaMcpServer.ModelContextProtocol
             _profileOverride = string.IsNullOrWhiteSpace(profile) ? null : profile!.Trim();
         }
 
-        /// <summary>Resolved profile name, always lowercase: "lite" or "full".</summary>
+        /// <summary>Resolved profile name: "compact", "lite" or "full".</summary>
         public static string ResolvedProfile()
         {
             string? p = _profileOverride;
             if (string.IsNullOrEmpty(p)) p = Environment.GetEnvironmentVariable("TIA_MCP_PROFILE");
             p = p?.Trim();
-            if (string.IsNullOrEmpty(p)) return "lite";
-            // Only "full" (and the historical "all") opts out; anything else — including a
-            // typo — stays on the safe, host-compatible lite roster rather than silently
-            // blowing past a host's tool cap.
             if (string.Equals(p, "full", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(p, "all", StringComparison.OrdinalIgnoreCase)) return "full";
-            return "lite";
+            if (string.Equals(p, "lite", StringComparison.OrdinalIgnoreCase)) return "lite";
+            return "compact";
         }
 
         public static bool IsLiteProfile()

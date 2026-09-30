@@ -99,12 +99,16 @@ dotnet run --project .\src\TiaMcpServer\TiaMcpServer.csproj -c Release
 
 ```text
 --tia-portal-location PATH  指定 TIA Portal V21 安装目录
---profile lite|full         工具列表；默认 lite
+--profile compact|lite|full 工具列表；默认 compact
 --with-ui                   使用 TIA Portal 图形界面启动，默认无界面
 --logging 0|1|2|3           无日志、stderr、Debug 输出或 Windows Event Log
 ```
 
-默认 `lite` 只列出核心工具，其他工具可通过 `FindTools` 和 `CallTool` 按需访问。 `full` 会列出全部工具，但可能超过部分 AI 客户端的工具数量限制。
+默认 `compact` 只公开 `Bootstrap`、`FindTools`、`GetToolSchema`、`CallTool` 四个入口，完整工具目录留在服务端。先搜索需要的工具，再按需读取参数详情、调用原工具，可减少每轮发送给模型的工具 schema。`lite` 保留常用工具直调，`full` 列出全部工具；依赖固定工具名称直调的客户端可显式指定 `--profile lite` 或 `--profile full`。
+
+`FindTools(query)` 默认返回 6 个简短结果，最多 20 个；用 `offset` 翻页，`includeDetails=true` 查看完整描述。`GetToolSchema(name)` 返回该工具的准确参数 schema 和描述。公共操作指南通过 `CallTool("GetAuthoringGuide", "{\"topic\":\"overview\"}")` 按需获取。大结果沿用现有寄存分页：只读取需要的 `GetExport` 页面；需要完整文件时用 `SaveExport`，避免把全文绕过聊天上下文。
+
+修改后重新构建，并让客户端重启 MCP 服务、刷新工具列表后生效。详细依据、测量方法见 [MCP token 优化说明](doc/mcp-token-budget.md)。
 
 启动本地 HTTP MCP 服务：
 

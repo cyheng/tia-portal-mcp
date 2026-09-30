@@ -4,7 +4,7 @@
     {
         public string? TiaPortalLocation { get; set; } // explicit V21 install root, e.g. D:\app\TIA21\Portal V21
         public int? Logging { get; set; } // 1=stderr, 2=Debug, 3=EventLog
-        // Tool roster size: "lite" (default, ~48 tools) or "full" (everything).
+        // Tool roster size: "compact" (default, discovery), "lite" (core) or "full".
         // null = not given on the command line; TIA_MCP_PROFILE then decides.
         public string? Profile { get; set; }
         public string? Transport { get; set; } // "stdio" (default) or "http"

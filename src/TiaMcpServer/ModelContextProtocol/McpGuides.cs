@@ -15,11 +15,21 @@ namespace TiaMcpServer.ModelContextProtocol
     public static class McpGuides
     {
         public const string ServerInstructions =
+            "TIA Portal MCP. Call Bootstrap first. Default compact exposes discovery tools only: " +
+            "FindTools(query) -> GetToolSchema(name) when parameter details are needed -> CallTool(name, argumentsJson). " +
+            "All engineering and export tools remain callable. Before writes, resolve names with GetProjectTree; " +
+            "read GetAuthoringGuide(scl/lad/db/hmi) before authoring. Prefer ScaffoldProject with dryRun first " +
+            "for whole projects. After writes compile then SaveProject. Read GetAuthoringGuide(overview) for " +
+            "full operating rules. For paged results use CallTool('GetExport', ...) or CallTool('SaveExport', ...).";
+
+        // Full guidance belongs in an on-demand response. Some hosts prepend initialize
+        // instructions to EVERY tool description, multiplying the cost of long prose.
+        public const string Overview =
 @"TIA Portal MCP server (Siemens PLC/HMI engineering via Openness). How to work well:
 
 FIRST CALL: Bootstrap — returns environment status, connection state, the recommended next tool, and operating rules. Do this before anything else. If the environment itself seems broken (TIA missing, group membership, nothing connects), call Doctor for a plain-language diagnosis with exact fixes.
 
-THE TOOL LIST YOU SEE IS NOT THE WHOLE SERVER. By default only ~48 core tools are listed, out of ~200. The rest — watch tables, alarms, GSD/hardware catalog, OPC UA, technology objects, HMI screens and themes, cross-reference and repair tools, online monitoring — are reached WITHOUT changing anything: call FindTools('what you need in plain words'), then CallTool(name, argumentsJson). So never conclude ""this server cannot do X"" from the visible list; run FindTools('X') first. (An operator who wants everything listed at once can start the server with --profile full, but the tool list then exceeds what VS Code/Copilot and Windsurf accept.)
+THE TOOL LIST YOU SEE IS NOT THE WHOLE SERVER. Default compact lists only Bootstrap, FindTools, GetToolSchema and CallTool. Search with FindTools('what you need in plain words'), load GetToolSchema(name) for exact parameter descriptions, then CallTool(name, argumentsJson). Every engineering and export tool remains available. Do not conclude a capability is missing without searching. --profile lite lists the core workflow tools; --profile full lists everything.
 
 GOLDEN PATHS (pick one, do not improvise):
 - Whole new project → ScaffoldProject with ONE JSON spec (PLC + blocks + HMI + compile + save in a single call). The DEFAULT call is a dry run (offline spec validation, nothing created); when it reports clean, call again with dryRun=false to actually create.
@@ -41,6 +51,7 @@ DISCIPLINE:
         /// <summary>Cheat-sheet topics for the GetAuthoringGuide tool.</summary>
         public static readonly IReadOnlyDictionary<string, string> Topics = new Dictionary<string, string>
         {
+            ["overview"] = Overview,
             ["workflow"] =
 @"WORKFLOW (verified order):
 Connect → (OpenProject | AttachToOpenProject | CreateProject) → GetProjectTree → read/write → CompileSoftware → SaveProject.

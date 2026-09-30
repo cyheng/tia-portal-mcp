@@ -7,7 +7,7 @@ description: Drive Siemens TIA Portal (博途) end-to-end through the TiaMcpServ
 
 This is the operating skill for TIA Portal V21 MCP automation. The
 companion plugin lives at `tools/tiaportal-mcp/`. It exposes on the order of
-**~201** MCP tools (lite profile ~43; exact runtime set: call `tools/list` on the running server) covering
+the full engineering catalog through a **4-tool compact profile** by default (exact runtime set: call `tools/list` on the running server), covering
 project, hardware, PLC, HMI, and online operations.
 
 ## 0. Always start here
@@ -19,6 +19,13 @@ project, hardware, PLC, HMI, and online operations.
 4. Read-before-write loop                ← inspect, smallest change, compile, save
 ```
 
+Default `compact` lists only `Bootstrap`, `FindTools`, `GetToolSchema`, and `CallTool`.
+All tool names below remain available: use `FindTools(query)` for a short signature,
+`GetToolSchema(name)` for parameter details when needed, then `CallTool(name, argumentsJson)`.
+Read `GetAuthoringGuide(topic='overview')` via `CallTool` for full operating guidance.
+Use `--profile lite` for direct access to core tools or `--profile full` for the entire roster.
+`FindTools` defaults to 6 matches, caps at 20, and supports `offset` and `includeDetails`.
+
 **交付包内最短路径（仅读包内文件时）**  
 根目录 `README.md`（三步上手）→ `scripts/Validate-Bundle.ps1`（脱机校验）→ 用 `cursor-mcp.example.json` 把 `command` 指到包内 `TiaMcpServer.exe` → 执行顺序见 `docs/full-project-generation-runbook.md` 与 `templates/project-blueprints/full_plc_hmi_project.json`。
 
@@ -28,7 +35,7 @@ it; otherwise inspect with `DescribeObject`/`DescribeService` first, then call
 
 ## 0.1 弱模型 / 新手：你一辈子只需要这 15 个工具（其余的先忽略）
 
-This server exposes ~190 tools. **You do NOT need most of them.** A small or
+This server exposes a full engineering catalog. **You do NOT need most of it.** A small or
 non-expert model should pick **only** from this whitelist and ignore everything
 else unless one of these tools' output explicitly tells you to call another:
 
@@ -50,10 +57,10 @@ else unless one of these tools' output explicitly tells you to call another:
 参数名时，照本表/§8 的"精确参数名"抄，不要猜。HMI 美化看 §12，库复用看 §15。
 
 **降门槛三件套(已内置，弱模型友好):**
-- **Lite 工具档位** — 启动 server 时设环境变量 `TIA_MCP_PROFILE=lite`，`tools/list`
-  只暴露 ~42 个 L0/L1 核心工具(而非全部 ~200)，弱模型不会在工具海里选错，VS Code 的
-  128 工具上限也不再爆。默认仍是 full；要全量工具就别设这个变量。一键写入宿主配置：
-  `tia config --lite`。(v2.2.8 实测：full=201 工具含 L2，lite=43 工具无 L2。)
+- **工具档位** — 默认 `compact` 的 `tools/list` 只公开 4 个发现和调用入口。
+  显式设置 `TIA_MCP_PROFILE=lite` 可直调常用工具，`full` 可直调全目录。
+  两个兼容档都能通过 `FindTools` / `GetToolSchema` / `CallTool` 访问完整目录。一键写入宿主配置：
+  `tia config --lite`；默认配置无需指定档位。2026-09-30 实测：compact=4，lite=57，full=224。
 - **参数容错** — `softwarePath` 现在容忍多余空格/大小写，单 PLC 工程或唯一匹配时
   传"PLC"也能自动认到 `PLC_1`；找不到时报错会**列出可用 PLC 路径**。少数易错工具
   接受别名(`tableJson`↔`tagTableJson`、`screenJson`↔`designJson`、

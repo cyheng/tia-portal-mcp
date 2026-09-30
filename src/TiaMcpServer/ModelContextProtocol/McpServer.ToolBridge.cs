@@ -4,23 +4,14 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Reflection;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading.Tasks;
 
 namespace TiaMcpServer.ModelContextProtocol
 {
-    // The escape hatch that lets the lite roster be the default without losing anything.
-    //
-    // Shipping all 212 tools costs ~40k tokens of JSON schema in every single turn and
-    // exceeds what Copilot (128) and Windsurf (100) will even load. Shipping only the ~48
-    // lite tools fixes that but used to be a dead end: a model in lite could not reach
-    // ExportPlcWatchTable at all, and had no way to find out it existed.
-    //
-    // FindTools + CallTool close that gap: two tools (~700 tokens) buy on-demand access to
-    // the entire roster. The model searches when it needs something the roster lacks, reads
-    // just that one signature, and calls it. This is the progressive-disclosure / tool-search
-    // pattern that Anthropic, VS Code and the agent gateways all converged on during 2025-26.
+    // Discover a small page first, fetch one authoritative schema only when needed,
+    // then invoke the original tool with its existing checks and structured response.
     public static partial class McpServer
     {
         // name -> the static method carrying [McpServerTool]. Built once; ~212 entries.
@@ -59,7 +50,7 @@ namespace TiaMcpServer.ModelContextProtocol
                 string def;
                 if (p.DefaultValue == null) def = "null";
                 else if (p.DefaultValue is bool) def = ((bool)p.DefaultValue) ? "true" : "false";
-                else if (p.DefaultValue is string) def = "\"" + p.DefaultValue + "\"";
+                else if (p.DefaultValue is string) def = JsonSerializer.Serialize((string)p.DefaultValue, BridgeJson);
                 else def = Convert.ToString(p.DefaultValue, System.Globalization.CultureInfo.InvariantCulture) ?? "null";
                 parts.Add(p.Name + "?: " + t + " = " + def);
             }
@@ -78,22 +69,22 @@ namespace TiaMcpServer.ModelContextProtocol
         }
 
         [McpServerTool(Name = "FindTools"), Description(
-            "[L0][Meta] Search the FULL tool roster (all ~200 tools), including ones not listed in this session. " +
-            "The server ships a ~48-tool 'lite' roster by default so the tool list stays small and every host can load it; " +
-            "everything else is reached through this tool plus CallTool. " +
-            "USE THIS whenever the visible tools do not cover what you need, before concluding the server cannot do something. " +
-            "Search by capability words, not exact names: 'watch table', 'HMI screen', 'download', 'cross reference', 'GSD'. " +
-            "Returns each match's exact name, parameter signature with defaults, and full description; then invoke it with CallTool.")]
+            "[L0][Meta] Search all tools by capability words or exact name. Returns a small page of exact signatures and short summaries. " +
+            "Use GetToolSchema(name) for full parameter details, then CallTool(name, argumentsJson). Follow meta.nextOffset for more matches.")]
         public static ResponseStringList FindTools(
             [Description("query: space-separated words matched against tool names and descriptions, e.g. 'export watch table'. Empty lists the whole roster.")] string query = "",
-            [Description("limit: max tools to return (default 12). Raise it for a broad survey.")] int limit = 12)
+            [Description("limit: page size, default 6 and maximum 20.")] int limit = 6,
+            [Description("offset: zero-based match offset, default 0. Use meta.nextOffset for the next page.")] int offset = 0,
+            [Description("includeDetails: false returns short summaries; true includes full tool descriptions.")] bool includeDetails = false)
         {
             try
             {
                 var all = AllToolMethods();
-                if (limit <= 0) limit = 12;
+                limit = limit <= 0 ? 6 : Math.Min(limit, 20);
+                offset = Math.Max(0, offset);
+                string search = (query ?? "").Trim();
 
-                var terms = (query ?? "")
+                var terms = search
                     .Split(new[] { ' ', ',', ';', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
                     .Select(t => t.Trim().ToLowerInvariant())
                     .Where(t => t.Length > 0)
@@ -124,32 +115,32 @@ namespace TiaMcpServer.ModelContextProtocol
                         Message = "No tool matches '" + query + "'. Try fewer or more general words " +
                                   "(e.g. 'watch table' instead of 'ExportPlcWatchTableToCsv'), " +
                                   "or call FindTools with an empty query to list everything.",
-                        Meta = BridgeMeta(true),
+                        Meta = DiscoveryMeta(0, 0, offset, limit, includeDetails),
                     };
                 }
 
                 var hits = scored
-                    .OrderByDescending(x => x.Key).ThenBy(x => x.Value, StringComparer.Ordinal)
+                    .OrderByDescending(x => string.Equals(x.Value, search, StringComparison.OrdinalIgnoreCase))
+                    .ThenByDescending(x => x.Key).ThenBy(x => x.Value, StringComparer.Ordinal)
+                    .Skip(offset)
                     .Take(limit).ToList();
 
-                bool lite = IsLiteProfile();
                 var lines = new List<string>();
                 foreach (var h in hits)
                 {
                     var m = all[h.Value];
-                    bool listed = !lite || LiteToolNames.Contains(h.Value);
+                    bool listed = IsToolListed(h.Value);
                     lines.Add(RenderSignature(h.Value, m)
                               + (listed ? "  [already listed - call it directly]" : "  [call via CallTool]"));
-                    lines.Add("    " + ToolDescription(m));
+                    lines.Add("    " + (includeDetails ? ToolDescription(m) : ToolSummary(m)));
                 }
 
                 return new ResponseStringList
                 {
-                    Message = hits.Count + " of " + scored.Count + " matching tools (roster: " + all.Count + " total). " +
-                              "Tools marked [call via CallTool] are not in this session's tool list - " +
-                              "invoke them with CallTool(name, argumentsJson).",
+                    Message = hits.Count + " of " + scored.Count + " matches. Use GetToolSchema(name) for full details, " +
+                              "CallTool(name, argumentsJson) to invoke, and meta.nextOffset for more.",
                     Items = lines,
-                    Meta = BridgeMeta(true),
+                    Meta = DiscoveryMeta(scored.Count, hits.Count, offset, limit, includeDetails),
                 };
             }
             catch (Exception ex)
@@ -158,12 +149,76 @@ namespace TiaMcpServer.ModelContextProtocol
             }
         }
 
+        private static string ToolSummary(MethodInfo method)
+        {
+            string description = ToolDescription(method).Trim();
+            int end = description.Length;
+            for (int i = 0; i < description.Length; i++)
+            {
+                char c = description[i];
+                if (c == '\r' || c == '\n') { end = i; break; }
+                if ((c == '.' || c == '!' || c == '?' || c == '。') &&
+                    (i + 1 == description.Length || char.IsWhiteSpace(description[i + 1]) || c == '。'))
+                { end = i + 1; break; }
+            }
+            string summary = description.Substring(0, end).Trim();
+            const int maxChars = 220;
+            if (summary.Length <= maxChars) return summary;
+            int length = maxChars - 1;
+            if (char.IsHighSurrogate(summary[length - 1])) length--;
+            return summary.Substring(0, length) + "…";
+        }
+
+        private static JsonObject DiscoveryMeta(int matchedCount, int returnedCount, int offset, int limit, bool includeDetails)
+        {
+            var meta = BridgeMeta(true);
+            meta["matchedCount"] = matchedCount;
+            meta["returnedCount"] = returnedCount;
+            meta["offset"] = offset;
+            meta["limit"] = limit;
+            meta["nextOffset"] = returnedCount > 0 && offset + returnedCount < matchedCount
+                ? (JsonNode)JsonValue.Create(offset + returnedCount)!
+                : null;
+            meta["includeDetails"] = includeDetails;
+            return meta;
+        }
+
+        [McpServerTool(Name = "GetToolSchema"), Description(
+            "[L0][Meta] Get one tool's exact name, full description, signature with defaults, and authoritative input JSON schema. " +
+            "Use after FindTools when parameter details are needed, then invoke with CallTool.")]
+        public static ResponseToolSchema GetToolSchema(
+            [Description("name: exact tool name from FindTools.")] string name)
+        {
+            string target = (name ?? "").Trim();
+            try
+            {
+                if (target.Length == 0)
+                    return new ResponseToolSchema { Message = "GetToolSchema: 'name' is required. Use FindTools to look up a tool.", Meta = BridgeMeta(false) };
+                if (!AllToolMethods().TryGetValue(target, out var method))
+                    return new ResponseToolSchema { Message = "No tool named '" + target + "'. Use FindTools to find its exact name.", Meta = BridgeMeta(false) };
+
+                // Use the same SDK factory as tools/list, including required flags, defaults,
+                // nested types and parameter descriptions. Reflection-built schemas drift.
+                var tool = McpServerTool.Create(method).ProtocolTool;
+                return new ResponseToolSchema
+                {
+                    Name = tool.Name,
+                    Description = tool.Description,
+                    Signature = RenderSignature(tool.Name, method),
+                    InputSchema = JsonNode.Parse(tool.InputSchema.GetRawText()),
+                    Meta = BridgeMeta(true),
+                };
+            }
+            catch (Exception ex)
+            {
+                return new ResponseToolSchema { Message = "GetToolSchema failed: " + ex.Message, Meta = BridgeMeta(false) };
+            }
+        }
+
         [McpServerTool(Name = "CallTool"), Description(
-            "[L0][Meta] Invoke ANY tool in the full roster by name, including ones not listed in this session. " +
-            "Use FindTools first to get the exact name and parameter signature. " +
-            "Behaves exactly like calling the tool directly: same work, same result, same safety checks; the inner tool's result is in the 'result' field as structured JSON. " +
-            "Example: name='ExportPlcWatchTable', argumentsJson='{\"softwarePath\":\"PLC_1\",\"watchTableName\":\"WT1\"}'.")]
-        public static ResponseCallTool CallTool(
+            "[L0][Meta] Invoke any discovered tool by exact name, with its existing safety checks. " +
+            "Use FindTools or GetToolSchema first. The original response is returned as structured JSON in result; meta.success preserves inner failure.")]
+        public static async Task<ResponseCallTool> CallTool(
             [Description("name: exact tool name from FindTools, e.g. 'ExportPlcWatchTable'.")] string name,
             [Description("argumentsJson: JSON object of the tool's arguments, e.g. '{\"softwarePath\":\"PLC_1\"}'. Omit or '{}' for a no-argument tool.")] string argumentsJson = "")
         {
@@ -234,6 +289,19 @@ namespace TiaMcpServer.ModelContextProtocol
                 }
 
                 var ps = method.GetParameters();
+                var known = ps.Select(p => p.Name!).ToArray();
+                var supplied = args.Select(kv => kv.Key).ToArray();
+                string problem = known.Length == 0 && supplied.Length > 0
+                    ? target + " takes no arguments, but got: " + string.Join(", ", supplied) + ". Expected signature: " + RenderSignature(target, method) + " (nothing was executed)."
+                    : ArgDiagnostics.Check(target, known, ps.Where(p => !p.HasDefaultValue).Select(p => p.Name!).ToArray(), supplied,
+                        ps.ToDictionary(p => p.Name!, p => FriendlyTypeName(p.ParameterType), StringComparer.OrdinalIgnoreCase));
+                if (problem.Length > 0)
+                    return new ResponseCallTool { Message = problem, Meta = BridgeMeta(false) };
+
+                var duplicate = supplied.GroupBy(k => k, StringComparer.OrdinalIgnoreCase).FirstOrDefault(g => g.Count() > 1);
+                if (duplicate != null)
+                    return new ResponseCallTool { Message = "Duplicate argument '" + duplicate.Key + "'. Supply each parameter once (nothing was executed).", Meta = BridgeMeta(false) };
+
                 var call = new object?[ps.Length];
                 var missing = new List<string>();
                 for (int i = 0; i < ps.Length; i++)
@@ -278,6 +346,11 @@ namespace TiaMcpServer.ModelContextProtocol
                 }
 
                 object? result = method!.Invoke(null, call);
+                if (result is Task task)
+                {
+                    await task.ConfigureAwait(false);
+                    result = method.ReturnType.GetProperty("Result")?.GetValue(task);
+                }
                 // Tools return their own strongly-typed response objects; hand that through as
                 // structured JSON in Result, not an escaped string in Message. Putting the inner
                 // JSON into Message serialized every quote to \" — inflating it and losing the
@@ -290,7 +363,7 @@ namespace TiaMcpServer.ModelContextProtocol
                 {
                     Message = "Called " + target + (result == null ? " (null result)" : ""),
                     Result = resultNode,
-                    Meta = BridgeMeta(true),
+                    Meta = BridgeMeta(InnerToolSucceeded(resultNode)),
                 };
             }
             catch (TargetInvocationException tie)
@@ -302,6 +375,19 @@ namespace TiaMcpServer.ModelContextProtocol
             {
                 return new ResponseCallTool { Message = "CallTool('" + target + "') failed: " + ex.Message, Meta = BridgeMeta(false) };
             }
+        }
+
+        private static bool InnerToolSucceeded(JsonNode? result)
+        {
+            if (!(result is JsonObject obj)) return true;
+            foreach (var field in obj)
+            {
+                if (!string.Equals(field.Key, "meta", StringComparison.OrdinalIgnoreCase) || !(field.Value is JsonObject meta)) continue;
+                foreach (var entry in meta)
+                    if (string.Equals(entry.Key, "success", StringComparison.OrdinalIgnoreCase) && entry.Value is JsonValue value
+                        && value.TryGetValue<bool>(out var success)) return success;
+            }
+            return true;
         }
 
         private static int CommonPrefixLength(string a, string b)
