@@ -34,7 +34,7 @@ namespace TiaMcpServer.ModelContextProtocol
     public static partial class McpServer
     {
         /// <summary>超过这个字符数就寄存并只回头部。0 或负数表示不限。</summary>
-        public const int DefaultMaxResponseChars = 20000;
+        public const int DefaultMaxResponseChars = 8000;
 
         // 分页工具自身不能被这一层处理：它们的输出本来就是按 offset 夹紧过的，
         // 再包一层只会套娃出一个永远翻不到底的句柄。
@@ -430,12 +430,9 @@ namespace TiaMcpServer.ModelContextProtocol
                 ["totalLength"] = head.TotalLength,
                 ["nextOffset"] = head.NextOffset.HasValue ? JsonValue.Create(head.NextOffset.Value) : null,
                 ["eof"] = head.Eof,
-                ["hint"] = $"这是 {toolName} 响应的前 {head.Returned} 个字符，共 {head.TotalLength} 个。"
-                         + $"**你自己要读全文**：GetExport(exportId=\"{id}\", offset={head.NextOffset}) 往后翻，"
-                         + "直到 eof=true；每页是**字符切片**，会从行或 JSON 中间断开，"
-                         + "要解析必须先把所有页拼完整再解析，别拿单页去 parse。"
-                         + $"**用户要的是文件**：SaveExport(exportId=\"{id}\", outputPath=...) 一次落盘"
-                         + "（它只回路径，不回内容，所以你自己要看的话别用它）。"
+                ["hint"] = $"响应前 {head.Returned}/{head.TotalLength} 字符。按需 CallTool('GetExport', "
+                         + $"{{exportId:'{id}',offset:{head.NextOffset}}}) 翻页；字符切片须拼完整再解析 JSON。"
+                         + $"需要全文文件时 CallTool('SaveExport', {{exportId:'{id}',outputPath:...}})，无需逐页读取。"
             };
 
             var stub = new JsonObject

@@ -176,23 +176,22 @@ namespace TiaMcpServer.Cli
         private static int Config(string[] args)
         {
             string exe = McpConfigInstaller.OwnExePath();
-            // The engine itself now defaults to the ~48-tool lite roster, so a plain config is
-            // already the right one and pins no profile. --full is the opt-out; --lite is still
-            // accepted and still yields lite, since lite is the default.
+            // Plain configuration uses compact. Explicit legacy flags pin direct-tool profiles.
             bool full = Flag(args, "--full");
+            bool lite = Flag(args, "--lite");
 
             if (Flag(args, "--print"))
             {
                 Console.WriteLine("Claude Desktop / Claude Code / Cursor (mcpServers):");
-                Console.WriteLine(McpConfigInstaller.Snippet(exe, McpConfigInstaller.HostStyle.McpServers, full));
+                Console.WriteLine(McpConfigInstaller.Snippet(exe, McpConfigInstaller.HostStyle.McpServers, full, lite));
                 Console.WriteLine();
                 Console.WriteLine("VS Code — %APPDATA%\\Code\\User\\mcp.json (servers):");
-                Console.WriteLine(McpConfigInstaller.Snippet(exe, McpConfigInstaller.HostStyle.VsCode, full));
+                Console.WriteLine(McpConfigInstaller.Snippet(exe, McpConfigInstaller.HostStyle.VsCode, full, lite));
                 Console.WriteLine();
                 Console.WriteLine("Gemini CLI / Windsurf / Cline use the same mcpServers shape as the first snippet.");
                 Console.WriteLine();
                 Console.WriteLine("Codex — %USERPROFILE%\\.codex\\config.toml (TOML):");
-                Console.WriteLine(McpConfigInstaller.Snippet(exe, McpConfigInstaller.HostStyle.CodexToml, full));
+                Console.WriteLine(McpConfigInstaller.Snippet(exe, McpConfigInstaller.HostStyle.CodexToml, full, lite));
                 return 0;
             }
 
@@ -213,12 +212,12 @@ namespace TiaMcpServer.Cli
                     continue;
                 }
 
-                try { Console.WriteLine("  [ok]     " + h.Name + ": " + McpConfigInstaller.Apply(h.ConfigPath, exe, h.Style, full)); done++; }
+                try { Console.WriteLine("  [ok]     " + h.Name + ": " + McpConfigInstaller.Apply(h.ConfigPath, exe, h.Style, full, lite)); done++; }
                 catch (Exception ex) { Console.Error.WriteLine("  [failed] " + h.Name + ": " + ex.Message); failed++; }
             }
 
             Console.WriteLine(done > 0
-                ? $"Configured {done} host(s) for TIA Portal V21 -> {exe}{(full ? " [full profile: all tools — exceeds VS Code/Copilot's 128 and Windsurf's 100 tool cap]" : " [default lite profile: ~48 core tools; the rest stay reachable via FindTools/CallTool]")}. Restart the AI client to load it. (original config backed up as *.bak)"
+                ? $"Configured {done} host(s) for TIA Portal V21 -> {exe}{(full ? " [full profile: all tools]" : lite ? " [lite profile: direct core tools]" : " [default compact profile: 4 discovery tools; full catalog via FindTools/GetToolSchema/CallTool]")}. Restart the AI client to load it. (original config backed up as *.bak)"
                 : "No host config written. Targeted host not found, or use `config --print` to copy the snippet manually.");
             Console.WriteLine("For other hosts, run `config --print` and paste the matching snippet.");
             return failed > 0 && done == 0 ? 1 : 0;
@@ -373,8 +372,9 @@ USAGE
                                                           One-click: register this MCP into all detected AI hosts
                                                           (Claude Desktop / Claude Code / Cursor / VS Code), using
                                                           the current TIA Portal V21 engine.
-                                                          Default lists ~48 core tools; the rest stay reachable
-                                                          on demand via FindTools + CallTool.
+                                                          Default lists 4 discovery tools; all operations remain
+                                                          reachable via FindTools/GetToolSchema/CallTool.
+                                                          --lite = direct access to core workflow tools.
                                                           --full = list every tool instead (rejected by VS Code/
                                                           Copilot above 128 and Windsurf above 100)
   tia doctor   [--fix]                                    Environment check: TIA Portal V21, Openness
@@ -382,7 +382,7 @@ USAGE
   tia schema                                              Print the spec field reference
   tia version
 
-GLOBAL FLAGS (also accepted): --with-ui, --tia-portal-location PATH, --profile lite|full
+GLOBAL FLAGS (also accepted): --with-ui, --tia-portal-location PATH, --profile compact|lite|full
 Exit code: 0 = success, 1 = completed with failed steps, 2 = error.";
 
         private const string SchemaText =

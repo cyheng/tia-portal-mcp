@@ -66,6 +66,9 @@ namespace TiaMcpServer.Tests
             Console.WriteLine("== 参数诊断 + 大响应寄存分页（坏了也悄无声息的两块）==");
             ExportsAndArgDiagnosticsTests.Run(Check);
 
+            Console.WriteLine("== Compact profiles, discovery schemas and sync/async tool dispatch ==");
+            ToolDiscoveryTests.Run(Check);
+
             Console.WriteLine("== Unified JS 脚本的 SyntaxCheck 默认关闭 + 进程级致命错不许被吞（issue #36）==");
             UnifiedScriptSyntaxCheckTests.Run(Check, Skip);
 

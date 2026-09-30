@@ -13,6 +13,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="YamlDotNet" Version="13.7.1" />
+    <PackageReference Include="ModelContextProtocol" Version="0.3.0-preview.4" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\..\src\TiaMcpServer\CliOptions.cs" Link="CliOptions.cs" />
@@ -22,6 +23,12 @@
     <Compile Include="..\..\src\TiaMcpServer\Siemens\Engineering.cs" Link="Engineering.cs" />
     <Compile Include="..\..\src\TiaMcpServer\Siemens\Capability.cs" Link="Capability.cs" />
     <Compile Include="..\..\src\TiaMcpServer\ModelContextProtocol\Responses.Workflow.cs" Link="Responses.Workflow.cs" />
+    <Compile Include="..\..\src\TiaMcpServer\ModelContextProtocol\Responses.ToolDiscovery.cs" Link="Responses.ToolDiscovery.cs" />
+    <Compile Include="..\..\src\TiaMcpServer\ModelContextProtocol\McpServer.ToolBridge.cs" Link="McpServer.ToolBridge.cs" />
+    <Compile Include="..\..\src\TiaMcpServer\ModelContextProtocol\McpServer.Profile.cs" Link="McpServer.Profile.cs" />
+    <Compile Include="..\..\src\TiaMcpServer\ModelContextProtocol\McpGuides.cs" Link="McpGuides.cs" />
+    <Compile Include="..\..\src\TiaMcpServer\ModelContextProtocol\McpServer.ArgDiagnostics.cs" Link="McpServer.ArgDiagnostics.cs" />
+    <Compile Include="..\..\src\TiaMcpServer\ModelContextProtocol\McpServer.Exports.cs" Link="McpServer.Exports.cs" />
     <Compile Include="..\..\src\TiaMcpServer\ModelContextProtocol\ProjectSpecification.cs" Link="ProjectSpecification.cs" />
     <Compile Include="..\..\src\TiaMcpServer\ModelContextProtocol\ProjectWorkflow.cs" Link="ProjectWorkflow.cs" />
     <!-- HMI 布局与执行 JSON 校验共用实际构建器，覆盖正确输入和失败输入。 -->

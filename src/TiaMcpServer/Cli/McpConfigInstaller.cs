@@ -83,27 +83,26 @@ namespace TiaMcpServer.Cli
             return System.Reflection.Assembly.GetExecutingAssembly().Location;
         }
 
-        public static JsonObject BuildServerEntry(string exePath, HostStyle style, bool full = false)
+        public static JsonObject BuildServerEntry(string exePath, HostStyle style, bool full = false, bool lite = false)
         {
             var entry = new JsonObject();
             if (style == HostStyle.VsCode) entry["type"] = "stdio";
             entry["command"] = exePath;
             entry["args"] = new JsonArray();
-            // The engine defaults to the ~48-tool lite roster on its own, so the normal config
-            // needs no env at all. Only the opt-out is worth writing — and it is an opt-out with
-            // consequences: the full roster exceeds what VS Code/Copilot (128) and Windsurf (100) load.
-            if (full) entry["env"] = new JsonObject { ["TIA_MCP_PROFILE"] = "full" };
+            // The engine defaults to compact discovery, so normal configs need no profile env.
+            // Preserve explicit lite/full requests; full wins when both flags are supplied.
+            if (full || lite) entry["env"] = new JsonObject { ["TIA_MCP_PROFILE"] = full ? "full" : "lite" };
             return entry;
         }
 
         /// <summary>Pretty single-server snippet for hosts we don't write automatically.</summary>
-        public static string Snippet(string exePath, HostStyle style = HostStyle.McpServers, bool full = false)
+        public static string Snippet(string exePath, HostStyle style = HostStyle.McpServers, bool full = false, bool lite = false)
         {
-            if (style == HostStyle.CodexToml) return CodexTomlSection(exePath, full);
+            if (style == HostStyle.CodexToml) return CodexTomlSection(exePath, full, lite);
             string rootKey = style == HostStyle.VsCode ? "servers" : "mcpServers";
             var root = new JsonObject
             {
-                [rootKey] = new JsonObject { [ServerKey] = BuildServerEntry(exePath, style, full) }
+                [rootKey] = new JsonObject { [ServerKey] = BuildServerEntry(exePath, style, full, lite) }
             };
             return root.ToJsonString(JsonOpts);
         }
@@ -112,13 +111,13 @@ namespace TiaMcpServer.Cli
         /// Upserts the tia-portal server into one host config. Returns a human-readable status line.
         /// Throws on hard I/O / parse failure so the caller can report it.
         /// </summary>
-        public static string Apply(string configPath, string exePath, HostStyle style = HostStyle.McpServers, bool full = false)
+        public static string Apply(string configPath, string exePath, HostStyle style = HostStyle.McpServers, bool full = false, bool lite = false)
         {
             configPath = Path.GetFullPath(configPath);
             var directory = Path.GetDirectoryName(configPath)
                 ?? throw new ArgumentException("Config path must identify a file.", nameof(configPath));
             Directory.CreateDirectory(directory);
-            if (style == HostStyle.CodexToml) return ApplyCodexToml(configPath, exePath, full);
+            if (style == HostStyle.CodexToml) return ApplyCodexToml(configPath, exePath, full, lite);
 
             JsonObject root;
             if (File.Exists(configPath))
@@ -142,7 +141,7 @@ namespace TiaMcpServer.Cli
             }
 
             bool existed = servers.ContainsKey(ServerKey);
-            servers[ServerKey] = BuildServerEntry(exePath, style, full);
+            servers[ServerKey] = BuildServerEntry(exePath, style, full, lite);
 
             AtomicWriteAllText(configPath, root.ToJsonString(JsonOpts));
             return (existed ? "updated" : "wrote") + " " + ServerKey + " -> " + configPath;
@@ -189,7 +188,7 @@ namespace TiaMcpServer.Cli
         }
 
         /// <summary>The TOML section Codex needs; standalone so `config --print` can show it too.</summary>
-        private static string CodexTomlSection(string exePath, bool full)
+        private static string CodexTomlSection(string exePath, bool full, bool lite)
         {
             var sb = new StringBuilder();
             sb.AppendLine("[mcp_servers." + ServerKey + "]");
@@ -198,11 +197,11 @@ namespace TiaMcpServer.Cli
             // TIA needs far longer to come up than Codex's 10s default; without this Codex kills
             // the server mid-startup and reports it as a crash.
             sb.AppendLine("startup_timeout_sec = 120");
-            if (full)
+            if (full || lite)
             {
                 sb.AppendLine();
                 sb.AppendLine("[mcp_servers." + ServerKey + ".env]");
-                sb.AppendLine("TIA_MCP_PROFILE = \"full\"");
+                sb.AppendLine("TIA_MCP_PROFILE = \"" + (full ? "full" : "lite") + "\"");
             }
             return sb.ToString();
         }
@@ -213,7 +212,7 @@ namespace TiaMcpServer.Cli
         /// one — a [a.b] section is legal anywhere in the file, so everything the user wrote for
         /// other servers survives untouched.
         /// </summary>
-        private static string ApplyCodexToml(string configPath, string exePath, bool full)
+        private static string ApplyCodexToml(string configPath, string exePath, bool full, bool lite)
         {
             string text = "";
             bool existed = false;
@@ -238,7 +237,7 @@ namespace TiaMcpServer.Cli
 
             var sb = new StringBuilder(text);
             if (sb.Length > 0) { sb.AppendLine(); sb.AppendLine(); }
-            sb.Append(CodexTomlSection(exePath, full));
+            sb.Append(CodexTomlSection(exePath, full, lite));
             AtomicWriteAllText(configPath, sb.ToString());
             return (existed ? "updated" : "wrote") + " " + ServerKey + " -> " + configPath;
         }

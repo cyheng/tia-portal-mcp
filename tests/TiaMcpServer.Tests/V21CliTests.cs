@@ -78,11 +78,23 @@ namespace TiaMcpServer.Tests
                 var fullEntry = McpConfigInstaller.BuildServerEntry(exe, style, full: true);
                 check(fullEntry["env"]?["TIA_MCP_PROFILE"]?.GetValue<string>() == "full",
                     "V21 config: " + style + " preserves the explicit full profile");
+                var liteEntry = McpConfigInstaller.BuildServerEntry(exe, style, lite: true);
+                check(liteEntry["env"]?["TIA_MCP_PROFILE"]?.GetValue<string>() == "lite",
+                    "V21 config: " + style + " preserves the explicit lite profile");
+                var bothEntry = McpConfigInstaller.BuildServerEntry(exe, style, full: true, lite: true);
+                check(bothEntry["env"]?["TIA_MCP_PROFILE"]?.GetValue<string>() == "full",
+                    "V21 config: " + style + " full takes precedence over lite");
 
                 var rootKey = style == McpConfigInstaller.HostStyle.VsCode ? "servers" : "mcpServers";
                 var snippet = JsonNode.Parse(McpConfigInstaller.Snippet(exe, style, full: true));
                 check(snippet?[rootKey]?[McpConfigInstaller.ServerKey]?["command"]?.GetValue<string>() == exe,
                     "V21 config: " + style + " snippet uses the expected host schema");
+                var liteSnippet = JsonNode.Parse(McpConfigInstaller.Snippet(exe, style, lite: true));
+                check(liteSnippet?[rootKey]?[McpConfigInstaller.ServerKey]?["env"]?["TIA_MCP_PROFILE"]?.GetValue<string>() == "lite",
+                    "V21 config: " + style + " snippet preserves the explicit lite profile");
+                var bothSnippet = JsonNode.Parse(McpConfigInstaller.Snippet(exe, style, full: true, lite: true));
+                check(bothSnippet?[rootKey]?[McpConfigInstaller.ServerKey]?["env"]?["TIA_MCP_PROFILE"]?.GetValue<string>() == "full",
+                    "V21 config: " + style + " snippet gives full precedence over lite");
             }
 
             var codex = McpConfigInstaller.Snippet(exe, McpConfigInstaller.HostStyle.CodexToml);
@@ -93,6 +105,12 @@ namespace TiaMcpServer.Tests
             var fullCodex = McpConfigInstaller.Snippet(exe, McpConfigInstaller.HostStyle.CodexToml, full: true);
             check(fullCodex.Contains("TIA_MCP_PROFILE = \"full\""),
                 "V21 config: Codex preserves the explicit full profile");
+            var liteCodex = McpConfigInstaller.Snippet(exe, McpConfigInstaller.HostStyle.CodexToml, lite: true);
+            check(liteCodex.Contains("TIA_MCP_PROFILE = \"lite\""),
+                "V21 config: Codex preserves the explicit lite profile");
+            var bothCodex = McpConfigInstaller.Snippet(exe, McpConfigInstaller.HostStyle.CodexToml, full: true, lite: true);
+            check(bothCodex.Contains("TIA_MCP_PROFILE = \"full\"") && !bothCodex.Contains("TIA_MCP_PROFILE = \"lite\""),
+                "V21 config: Codex snippet gives full precedence over lite");
 
             RunConfigWriteTests(check, exe);
         }
@@ -111,10 +129,30 @@ namespace TiaMcpServer.Tests
                 var written = JsonNode.Parse(File.ReadAllText(jsonPath));
                 check(written?["mcpServers"]?[McpConfigInstaller.ServerKey]?["args"] is JsonArray args && args.Count == 0,
                     "V21 config: updating a JSON config removes the obsolete version argument");
+                check(written?["mcpServers"]?[McpConfigInstaller.ServerKey] is JsonObject defaultEntry && !defaultEntry.ContainsKey("env"),
+                    "V21 config: writing JSON keeps the compact default profile implicit");
                 check(written?["keep"]?.GetValue<bool>() == true &&
                       written?["mcpServers"]?["other"]?["command"]?.GetValue<string>() == "other.exe" &&
                       File.ReadAllText(jsonPath + ".bak") == original,
                     "V21 config: updating JSON preserves unrelated settings and backs up the original");
+
+                foreach (var style in new[] { McpConfigInstaller.HostStyle.McpServers, McpConfigInstaller.HostStyle.VsCode })
+                {
+                    var profilePath = Path.Combine(directory, style + ".json");
+                    var rootKey = style == McpConfigInstaller.HostStyle.VsCode ? "servers" : "mcpServers";
+                    McpConfigInstaller.Apply(profilePath, exe, style, lite: true);
+                    var liteWritten = JsonNode.Parse(File.ReadAllText(profilePath));
+                    check(liteWritten?[rootKey]?[McpConfigInstaller.ServerKey]?["env"]?["TIA_MCP_PROFILE"]?.GetValue<string>() == "lite",
+                        "V21 config: writing " + style + " preserves the explicit lite profile");
+                    McpConfigInstaller.Apply(profilePath, exe, style, full: true, lite: true);
+                    var bothWritten = JsonNode.Parse(File.ReadAllText(profilePath));
+                    check(bothWritten?[rootKey]?[McpConfigInstaller.ServerKey]?["env"]?["TIA_MCP_PROFILE"]?.GetValue<string>() == "full",
+                        "V21 config: writing " + style + " gives full precedence over lite");
+                    McpConfigInstaller.Apply(profilePath, exe, style);
+                    var defaultWritten = JsonNode.Parse(File.ReadAllText(profilePath));
+                    check(defaultWritten?[rootKey]?[McpConfigInstaller.ServerKey] is JsonObject profileEntry && !profileEntry.ContainsKey("env"),
+                        "V21 config: writing " + style + " default clears the explicit profile");
+                }
 
                 var tomlPath = Path.Combine(directory, "config.toml");
                 File.WriteAllText(tomlPath, "model = 'keep'\n[mcp_servers.tia-portal]\ncommand = 'old.exe'\nargs = ['--tia-major-version', '21']\n");
@@ -123,6 +161,18 @@ namespace TiaMcpServer.Tests
                 check(toml.Contains("model = 'keep'") && toml.Contains("args = []") && !toml.Contains("tia-major-version") &&
                       toml.Contains("TIA_MCP_PROFILE = \"full\""),
                     "V21 config: updating TOML removes the version argument and preserves other settings");
+                McpConfigInstaller.Apply(tomlPath, exe, McpConfigInstaller.HostStyle.CodexToml, lite: true);
+                var liteToml = File.ReadAllText(tomlPath);
+                check(liteToml.Contains("TIA_MCP_PROFILE = \"lite\"") && !liteToml.Contains("TIA_MCP_PROFILE = \"full\""),
+                    "V21 config: writing TOML preserves the explicit lite profile");
+                McpConfigInstaller.Apply(tomlPath, exe, McpConfigInstaller.HostStyle.CodexToml, full: true, lite: true);
+                var bothToml = File.ReadAllText(tomlPath);
+                check(bothToml.Contains("TIA_MCP_PROFILE = \"full\"") && !bothToml.Contains("TIA_MCP_PROFILE = \"lite\""),
+                    "V21 config: writing TOML gives full precedence over lite");
+                McpConfigInstaller.Apply(tomlPath, exe, McpConfigInstaller.HostStyle.CodexToml);
+                var defaultToml = File.ReadAllText(tomlPath);
+                check(defaultToml.Contains("model = 'keep'") && !defaultToml.Contains("TIA_MCP_PROFILE"),
+                    "V21 config: writing TOML default clears the explicit profile and preserves other settings");
 
                 Directory.SetCurrentDirectory(directory);
                 var jsonStatus = McpConfigInstaller.Apply("relative.json", exe);

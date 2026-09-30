@@ -240,8 +240,9 @@ namespace TiaMcpServer.ModelContextProtocol
 
         #region bootstrap
 
-        [McpServerTool(Name = "Bootstrap"), Description("[L0][Bootstrap] FIRST tool any AI model should call. Read-only single-call orientation: returns TIA version, Openness group status, current connection/project state, the recommended next tool, the L0/L1 tool roster, and known TIA Openness limitations. Does NOT connect to TIA Portal — call Connect afterwards based on RecommendedNextTool.")]
-        public static async Task<ResponseBootstrap> Bootstrap()
+        [McpServerTool(Name = "Bootstrap"), Description("[L0][Bootstrap] Call first. Read-only readiness, connection/project state, next action and operating rules. Does not connect to TIA. Set includeDetails for the full guidance.")]
+        public static async Task<ResponseBootstrap> Bootstrap(
+            [Description("Include full operating rules and workflow tool names; default returns a concise orientation.")] bool includeDetails = false)
         {
             try
             {
@@ -304,7 +305,7 @@ namespace TiaMcpServer.ModelContextProtocol
                         "SaveProject", "CloseProject", "GetProjectTree", "GetSoftwareTree",
                         "PlcBuildAndImport", "CompileSoftware", "DownloadToPlc", "GoOnline", "GoOffline"
                     },
-                    L2Count = GetMcpToolNames().Count(),
+                    L2Count = AllToolMethods().Values.Count(m => ToolDescription(m).StartsWith("[L2]", StringComparison.Ordinal)),
                 };
 
                 var rules = new[]
@@ -315,7 +316,7 @@ namespace TiaMcpServer.ModelContextProtocol
                     "ON ERROR: read the error message — it names the recovery tool (e.g. 'call OpenProject/AttachToOpenProject'). Do that instead of retrying the same call or switching tools at random.",
                     "BIG TASKS: to create or extend a whole project in one shot, prefer ScaffoldProject (one JSON spec) over many small calls; pass dryRun=true first to validate the spec offline.",
                     "WRITING CODE: call GetAuthoringGuide('scl' or 'lad') BEFORE authoring block code — it returns the verified syntax and encoding rules. NEVER hand-write FlgNet XML for ladder logic; use S7DCL text via ImportFromDocuments/ImportBlocksFromScl.",
-                    "ENCODING: .scl external source = UTF-8 without BOM; .s7dcl/.s7res and all XML = UTF-8 WITH BOM. Wrong BOM is the #1 cause of mojibake/import failures with Chinese text.",
+                    "ENCODING: ASCII-only .scl may omit BOM; Chinese .scl needs BOM. .s7dcl/.s7res and all XML use UTF-8 WITH BOM.",
                 };
 
                 var limits = new[]
@@ -327,18 +328,30 @@ namespace TiaMcpServer.ModelContextProtocol
                     "HMI screen text labels use itemType 'Text' (HmiText). A Rectangle has NO Text property — writing text onto a Rectangle silently yields a blank label. Use Rectangle only for lamps/indicators/backgrounds.",
                 };
 
-                // The roster is trimmed by default, so say so HERE too. Bootstrap is the one call
-                // every model makes; a model that only reads the tool list would otherwise conclude
-                // the unlisted tools do not exist.
+                string profile = ResolvedProfile();
+                int total = AllToolMethods().Count;
+                int listed = GetConfiguredTools().Count;
+                if (!includeDetails)
                 {
-                    int total = GetMcpToolNames().Count();
-                    rules = rules.Concat(new[]
+                    rules = new[]
                     {
-                        IsLiteProfile()
-                            ? $"TOOL ROSTER: this session lists ~{LiteToolNames.Count} core tools of {total} total (profile=lite, the default — it keeps the tool list inside what VS Code/Copilot and Windsurf accept and saves ~30k tokens per turn). To use ANY unlisted tool: FindTools('plain words for what you need') → CallTool(name, argumentsJson). Never report a capability as missing without running FindTools first."
-                            : $"TOOL ROSTER: profile=full — all {total} tools are listed. Note that VS Code/Copilot (128) and Windsurf (100) refuse rosters this large; use the default lite profile there.",
-                    }).ToArray();
+                        "Resolve names with GetProjectTree before writes; after writes compile then SaveProject.",
+                        "Before authoring, CallTool('GetAuthoringGuide', {topic: 'scl'|'lad'|'db'|'hmi'}). For whole projects prefer ScaffoldProject with dryRun first.",
+                        "Read GetAuthoringGuide('overview') for full guidance. Never hand-write ladder FlgNet XML.",
+                    };
+                    limits = new[]
+                    {
+                        "Openness cannot change RUN/STOP, read CPU fault buffers, clear forces or do selective downloads. Safety compile requires TIA UI.",
+                        "HMI end-to-end automation requires WinCC Unified; Classic/Comfort/Basic APIs are limited. Use Text items for labels.",
+                        "Force/watch values require an online session and table trigger. Chinese imports need UTF-8 with BOM.",
+                    };
+                    layers.L0 = new[] { "Bootstrap", "FindTools", "GetToolSchema", "CallTool" };
+                    layers.L1 = Array.Empty<string>();
                 }
+                rules = rules.Concat(new[]
+                {
+                    $"profile={profile}: {listed} listed / {total} total tools. FindTools(query) → GetToolSchema(name) if needed → CallTool(name, argumentsJson) reaches the full catalog, including GetExport/SaveExport.",
+                }).ToArray();
 
                 bool ready = env.OpennessGroupOk == true && (env.TiaVersionInUse != null || env.TiaVersionDetected != null);
 
@@ -360,6 +373,9 @@ namespace TiaMcpServer.ModelContextProtocol
                     {
                         ["timestamp"] = DateTime.Now,
                         ["success"] = true,
+                        ["profile"] = profile,
+                        ["listedToolCount"] = listed,
+                        ["totalToolCount"] = total,
                     }
                 };
             }
