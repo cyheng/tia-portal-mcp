@@ -35,9 +35,18 @@ namespace TiaMcpServer.Siemens
             if (!probe.Ok)
                 throw new FileNotFoundException(probe.Problem, BaseAssemblyFileName);
 
-            var assemblyPath = FindV21AssemblyPath(probe.InstallPath!, name + ".dll");
+            var assemblyPath = FindV21DependencyPath(probe.InstallPath!, name + ".dll");
             if (assemblyPath == null)
-                throw new FileNotFoundException($"TIA Portal V21 assembly '{name}' is required under '{probe.InstallPath}\\PublicAPI\\V21'.", name + ".dll");
+                throw new FileNotFoundException(
+                    $"TIA Portal V21 assembly '{name}' was not found in '{probe.InstallPath}' under PublicAPI\\V21\\net48, PublicAPI\\V21, Bin\\PublicAPI or Bin\\PublicAPI\\Client.",
+                    name + ".dll");
+
+            // 后备目录没有版本号，加载前核对文件身份，防止误用其他 TIA 版本的依赖。
+            var actualName = AssemblyName.GetAssemblyName(assemblyPath);
+            if (!string.Equals(actualName.Name, name, StringComparison.OrdinalIgnoreCase)
+                || actualName.Version?.Major != TiaMajorVersion
+                || (assemblyName.Version != null && actualName.Version != assemblyName.Version))
+                throw new FileLoadException($"TIA Portal V21 assembly identity mismatch: requested '{args.Name}', found '{actualName.FullName}'.", assemblyPath);
 
             return Assembly.LoadFrom(assemblyPath);
         }
@@ -114,6 +123,19 @@ namespace TiaMcpServer.Siemens
             return File.Exists(directPath) ? directPath : null;
         }
 
+        internal static string? FindV21DependencyPath(string installPath, string fileName)
+        {
+            var publicPath = FindV21AssemblyPath(installPath, fileName);
+            if (publicPath != null) return publicPath;
+
+            // V21 将通信契约与连接适配器放在运行时目录，不递归扫描其他版本或框架。
+            var runtimePath = Path.Combine(installPath, "Bin", "PublicAPI");
+            var sharedPath = Path.Combine(runtimePath, fileName);
+            if (File.Exists(sharedPath)) return sharedPath;
+            var clientPath = Path.Combine(runtimePath, "Client", fileName);
+            return File.Exists(clientPath) ? clientPath : null;
+        }
+
         private static List<string?> ReadRegistryInstallPaths()
         {
             var paths = new List<string?>();
@@ -131,7 +153,8 @@ namespace TiaMcpServer.Siemens
                 paths.Add(installKey?.GetValue("Path") as string);
             }
             catch (Exception ex) when (ex is UnauthorizedAccessException || ex is System.Security.SecurityException
-                || ex is IOException || ex is ArgumentException || ex is NotSupportedException) { }
+                || ex is IOException || ex is ArgumentException || ex is NotSupportedException)
+            { }
             return paths;
         }
     }

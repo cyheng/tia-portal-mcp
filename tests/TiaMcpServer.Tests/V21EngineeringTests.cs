@@ -55,6 +55,8 @@ internal static class V21EngineeringTests
             check(Engineering.FindV21AssemblyPath(otherInstall, BaseAssembly) == null,
                 "engineering: lookup stays within PublicAPI/V21");
 
+            CheckRuntimeDependencies(root, check);
+
             Engineering.TiaPortalLocationOverride = explicitInstall;
             var available = Engineering.ProbeOpennessAssemblies();
             check(available.Ok && available.InstallPath == explicitInstall && available.ResolvedDll == net48Assembly && available.Problem == null,
@@ -106,6 +108,67 @@ internal static class V21EngineeringTests
         var install = Path.Combine(root, name);
         WriteMarker(Path.Combine(install, "PublicAPI", version, framework, BaseAssembly));
         return install;
+    }
+
+    private static void CheckRuntimeDependencies(string root, Action<bool, string> check)
+    {
+        const string hook = "Siemens.Engineering.ClientAdapter.MarshallerHook.dll";
+        const string hmiHook = "Siemens.Engineering.ClientAdapter.MarshallerHook.Hmi.dll";
+        const string contract = "Siemens.Engineering.Contract.dll";
+        var install = CreateInstall(root, "runtime", "V21", "net48");
+        var runtime = Path.Combine(install, "Bin", "PublicAPI");
+        var hookPath = Path.Combine(runtime, "Client", hook);
+        var hmiPath = Path.Combine(runtime, "Client", hmiHook);
+        var contractPath = Path.Combine(runtime, contract);
+        WriteMarker(hookPath);
+        WriteMarker(hmiPath);
+        WriteMarker(contractPath);
+
+        check(Engineering.FindV21DependencyPath(install, hook) == hookPath,
+            "engineering: 连接适配器可从 Bin/PublicAPI/Client 定位");
+        check(Engineering.FindV21DependencyPath(install, hmiHook) == hmiPath,
+            "engineering: HMI 适配器使用同一运行时目录");
+        check(Engineering.FindV21DependencyPath(install, contract) == contractPath,
+            "engineering: 通信契约可从 Bin/PublicAPI 定位");
+
+        var publicHook = Path.Combine(install, "PublicAPI", "V21", "net48", hook);
+        WriteMarker(publicHook);
+        check(Engineering.FindV21DependencyPath(install, hook) == publicHook,
+            "engineering: 公共 API 目录优先于运行时后备目录");
+
+        const string missing = "Siemens.Engineering.Unavailable.dll";
+        foreach (var directory in new[] { "V20", "V21/net8.0", "Client/net8.0", "Server", "AddIn" })
+            WriteMarker(Path.Combine(runtime, directory.Replace('/', Path.DirectorySeparatorChar), missing));
+        check(Engineering.FindV21DependencyPath(install, missing) == null,
+            "engineering: 不递归混入其他版本、框架或服务端程序集");
+
+        // 放入真实但身份不符的托管 DLL，确认解析器在执行加载前拒绝它。
+        const string invalidName = "Siemens.Engineering.Invalid";
+        File.Copy(typeof(V21EngineeringTests).Assembly.Location, Path.Combine(runtime, "Client", invalidName + ".dll"));
+        var previousOverride = Engineering.TiaPortalLocationOverride;
+        try
+        {
+            Engineering.TiaPortalLocationOverride = install;
+            try
+            {
+                Engineering.Resolver(new object(), new ResolveEventArgs(invalidName + ", Version=21.0.0.0"));
+                check(false, "engineering: 拒绝身份不符的运行时 DLL");
+            }
+            catch (FileLoadException ex)
+            {
+                check(ex.Message.Contains("identity mismatch") && ex.FileName?.EndsWith(invalidName + ".dll") == true,
+                    "engineering: 拒绝身份不符的运行时 DLL 并保留文件路径");
+            }
+        }
+        finally
+        {
+            Engineering.TiaPortalLocationOverride = previousOverride;
+        }
+
+        var runtimeOnly = Path.Combine(root, "runtime-only");
+        WriteMarker(Path.Combine(runtimeOnly, "Bin", "PublicAPI", BaseAssembly));
+        check(Engineering.SelectInstallPath(null, runtimeOnly, Array.Empty<string?>(), runtimeOnly) == null,
+            "engineering: 运行时后备目录不能代替 V21 公共 API 安装检测");
     }
 
     private static void WriteMarker(string path)
