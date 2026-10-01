@@ -1102,7 +1102,54 @@ as `MLC_*` IDs in the paired `.s7res` (`zh-CN:` + `en-US:`); HMI texts are
 or the SD import can fail (§9a boundary note). Round-trip alarm/text exports
 through these tools rather than hand-editing project XML.
 
-## 18. Capability boundary vs competitors (对标 — read before promising)
+## 18. 给程序块加备注 / 标题 / 注释（block comments & titles）
+
+给已有 FC/FB/OB 加"备注"是高频需求，但 TIA 里"备注"有 **3 个不同字段**，且 **MCP 没有直接
+设置 API**（截至 server 2.7.2 实测）：`GetObjectProperty(Block.Comment)` 抛循环引用 JSON 错、无
+`SetObjectProperty`、`InvokeObject` 改不了 MultilingualText、`SetAttribute` 只改 HeaderAuthor/
+Family/Name/Version（块属性头，**不是**注释）。**唯一可靠路径 = 导出-注入-回导**。详细规则与正则
+定位用 `GetAuthoringGuide(topic="comments")` 取（覆盖所有 MCP 客户端，含不读本 skill 的）——这里只
+放防坑要点。
+
+**三字段对照（XML 定位与显示位置完全不同）：**
+
+| 字段 | XML 定位 | 显示在哪 |
+|---|---|---|
+| 块注释 Comment | 文档中**第一个** `CompositionName="Comment"` | 块编辑器顶部（标题下一行）、门户视图"注释"列 |
+| 块标题 Title | 文档中**最后一个** `CompositionName="Title"`（在所有 CompileUnit 之后） | 块编辑器顶部「块标题」、门户视图"标题"列 |
+| 段标题 | 每个 `SW.Blocks.CompileUnit` 内**第 2 个** MultilingualText（第 1 个是段注释） | 程序段折叠后该段行尾 |
+
+**硬事实：项目树程序块行只渲染 `名称 [FCn]`（如 `FC_AutoFill [FC13]`），标题/注释都不画在树里。**
+要看备注用块编辑器或「门户视图 → PLC → 程序块」表格（有"标题""注释"两列）。数量不变式：
+**Comment 数 = Title 数 = CompileUnit 数 + 1**（1 块级 + N 段级），注入前后核对防目标错。
+
+**标准流水线（实测每步）：**
+
+```
+Bootstrap → Connect → GetProjectTree → GetBlocks(TypeName=="FC")
+→ DescribeBlockLogic 逐块（据此写有意义的中文备注，勿纯抄名字）
+→ ExportBlock 逐块（可并行调用）→ 脚本注入 Comment+Title（+ 空段标题从段注释提炼）
+→ ImportBlocksFromDirectory(groupPath="", dir=<目录>, overwrite=true)
+→ CompileAndDiagnosePlc（必须 ErrorCount=0）→ SaveProject
+→ 编译完成后再 ExportBlock 复核 1~3 块 + grep Text 校验
+```
+
+**工具坑（全部实测遇到）：**
+
+- **批量 `ExportBlocks` 经 compact `CallTool` 报缺 `server/context`**（批量工具带 MCP 宿主参数，
+  generic dispatcher 给不了）→ 只能**逐块 `ExportBlock`**（可并行发，server 自行串行）。
+- **`exportPath` 必须先 mkdir**，否则会创建同名目录、文件再嵌一层；mkdir 后文件平铺为 `<目录>/<块名>.xml`。
+- **`ImportBlock` 无 overwrite 参数，直接覆盖同名块**（实测，无需先 Delete）；`ImportBlocksFromDirectory`
+  有 `overwrite=true` 默认。
+- **导入后不要立即导出复核**——块短暂 inconsistent，报 "Block is inconsistent; TIA Portal does not
+  export inconsistent blocks."；**编译完成后**再复核。
+- 批量导入后编译只认 `ErrorCount`；既有警告（Real 精度损失、硬件 IO 未配置）原样保留属正常；编译
+  Info 日志会按新段名显示（段标题生效的凭据）。
+
+**红线：各程序段 Comment/Title 是原作者已有内容——只在"段标题为空"时写 Title，其余一律不动。**
+注入文本前转义 `& < >`（如 `<40%` → `&lt;40%`，TIA 显示时还原），文件 UTF-8 **带 BOM**。
+
+## 19. Capability boundary vs competitors (对标 — read before promising)
 
 Honest scope so you don't over-promise. Quote this when a user asks "can it do X".
 
@@ -1127,7 +1174,7 @@ are **intentionally out of scope** — low real benefit for this tool's job (eng
 automation) and risky on a live machine. Do **not** pitch them as "coming". Rationale in
 `docs/server-maturity-roadmap.md` (bundle root).
 
-## 19. Hard rules
+## 20. Hard rules
 
 1. **Never** call write tools before `Bootstrap` + `GetProjectTree`.
 2. **Never** use a temporary/timestamped path on the user's real working

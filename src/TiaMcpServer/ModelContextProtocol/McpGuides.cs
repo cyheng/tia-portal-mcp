@@ -18,7 +18,7 @@ namespace TiaMcpServer.ModelContextProtocol
             "TIA Portal MCP. Call Bootstrap first. Default compact exposes discovery tools only: " +
             "FindTools(query) -> GetToolSchema(name) when parameter details are needed -> CallTool(name, argumentsJson). " +
             "All engineering and export tools remain callable. Before writes, resolve names with GetProjectTree; " +
-            "read GetAuthoringGuide(scl/lad/db/hmi) before authoring. Prefer ScaffoldProject with dryRun first " +
+            "read GetAuthoringGuide(scl/lad/db/hmi/comments) before authoring. Prefer ScaffoldProject with dryRun first " +
             "for whole projects. After writes compile then SaveProject. Read GetAuthoringGuide(overview) for " +
             "full operating rules. For paged results use CallTool('GetExport', ...) or CallTool('SaveExport', ...).";
 
@@ -37,6 +37,7 @@ GOLDEN PATHS (pick one, do not improvise):
 - Read/understand a project → GetProjectTree, GetBlocksWithHierarchy. To READ ONE BLOCK'S LOGIC use DescribeBlockLogic — it returns readable LADDER rungs (series ' · ', parallel ' + ') and inline SCL, and flags contacts wired to a constant (a disabled/forced rung). Far faster and more accurate than exporting and reading FlgNet XML by hand. Do NOT hand-parse ladder XML.
 
 BEFORE WRITING CODE call GetAuthoringGuide with topic 'scl' or 'lad' — it returns the exact verified syntax and encoding rules. Most quality problems come from skipping this.
+ADDING COMMENTS/TITLES to an existing FC/FB/OB: there is no direct set API — the only reliable path is ExportBlock (per block) -> inject the MultilingualText -> re-import; read topic 'comments' for the three-field map, regex targeting and tool pitfalls.
 
 ENCODING (breaks Chinese text if wrong):
 - .scl external source: UTF-8 WITHOUT BOM *only if ASCII-only*. If the .scl has Chinese (identifiers/comments), no-BOM is read as GBK -> mojibake + bogus 'syntax error / BEGIN invalid'. Fix: add a BOM (utf-8-sig) OR keep all comments ASCII. Safest with Chinese: author the block as .s7dcl or XML instead (both WITH BOM, Chinese-safe).
@@ -172,6 +173,35 @@ Order matters: create/complete the PLC side FIRST (tags/DB must exist), then HMI
 - S7-1200 'identityConfirmed:false' right after connect is NORMAL, not an error — proceed.
 - Connect hangs / security error → an orphan TIA process is stuck; ask the user to close TIA instances (or kill Siemens.Automation.Portal.exe) and retry.
 - Long waits are normal on FIRST launch only (headless TIA cold start); subsequent calls are fast. Never spam-retry a slow call — you will spawn extra TIA instances.",
+
+            ["comments"] =
+@"BLOCK COMMENTS / TITLES / ANNOTATIONS (verified V21, server 2.7.2, 2026-10-01 — adding 备注 to existing FC/FB/OB):
+There is NO direct set API for a block Comment/Title. GetObjectProperty(Block.Comment) throws a circular-reference JSON error; there is no SetObjectProperty; InvokeObject cannot edit MultilingualText; SetAttribute only changes HeaderAuthor/Family/Name/Version (the block attribute header, NOT comments). The ONLY reliable path is: ExportBlock (per block) -> script-inject the MultilingualText -> re-import. Touch no logic/interface — only MultilingualText text, gated by compile + re-export.
+
+'备注' is THREE different fields — XML location and display spot differ:
+- Block comment (Comment) = the FIRST <MultilingualText CompositionName=""Comment""> in the document. Shows in the block editor header (line under the title) and the portal-view 注释 column.
+- Block title (Title) = the LAST <MultilingualText CompositionName=""Title""> in the document (after all CompileUnits). Shows in the block editor title bar and the portal-view 标题 column.
+- Network/segment title = the 2nd MultilingualText inside each <SW.Blocks.CompileUnit> (the 1st is that segment's comment). Shows at the segment row tail when collapsed.
+HARD FACT: the project-tree row only renders 名称 [FCn] (e.g. FC_AutoFill [FC13]); title/comment are NEVER drawn in the tree. To see them, open the block editor or the portal-view 表格.
+INVARIANT: Comment count = Title count = CompileUnit count + 1 (1 block-level + N segment-level). Check before and after injection to catch a wrong target.
+
+Injection targeting (regex, DOTALL, non-greedy):
+- Block Comment: first <MultilingualText[^>]*CompositionName=""Comment""[^>]*>.*?</MultilingualText>.
+- Block Title: LAST CompositionName=""Title"" (finditer, take the last) — it sits after every CompileUnit.
+- Segment Comment/Title: within each <SW.Blocks.CompileUnit\b[^>]*>.*?</SW.Blocks.CompileUnit>, take the first Comment / first Title.
+- Empty text = self-closing <Text/> (or <Text />); <Text>x</Text> is non-empty.
+- Escape & < > before writing (e.g. <40% -> &lt;40%; TIA shows it restored). File is UTF-8 WITH BOM (decode utf-8-sig, restore BOM on write).
+RED LINE: existing segment Comment/Title is the original author's — only write a Title when the segment title is EMPTY; leave everything else untouched.
+
+Standard pipeline (verified every step):
+Bootstrap -> Connect -> GetProjectTree (real softwarePath) -> GetBlocks (filter TypeName == FC) -> DescribeBlockLogic per block (write a meaningful Chinese 备注 from the logic; do not just echo the name) -> ExportBlock per block (parallel calls OK) -> inject block Comment+Title (+ promote empty network titles from network comments) -> ImportBlocksFromDirectory(softwarePath, groupPath="", dir=<dir>, overwrite=true) -> CompileAndDiagnosePlc (must ErrorCount=0) -> SaveProject -> AFTER compile, ExportBlock 1-3 blocks + grep the Text to verify.
+
+Tool pitfalls (all hit in practice):
+- Batch ExportBlocks via the compact CallTool(name, argumentsJson) dispatcher reports missing server/context (the batch tool needs MCP host params the generic dispatcher cannot supply). Call ExportBlock once per block instead (parallel calls are fine; the server serializes them).
+- exportPath must already exist — mkdir it first, or the server creates a same-named folder and nests the file one level deeper instead of <dir>/<BlockName>.xml.
+- ImportBlock has NO overwrite parameter; it directly overwrites a same-name block (verified — no Delete needed). ImportBlocksFromDirectory has overwrite=true by default.
+- Do NOT re-export to verify immediately after import: the block is briefly inconsistent and TIA reports 'Block is inconsistent; TIA Portal does not export inconsistent blocks.' Compile FIRST, then re-export to verify.
+- After batch import, compile per block succeeds; pre-existing warnings (Real precision loss, unconfigured hardware IO) are preserved and normal — only ErrorCount must be 0. The compile Info log echoes new network titles (proof they landed).",
         };
 
         /// <summary>Get a topic text, or null. Case-insensitive.</summary>

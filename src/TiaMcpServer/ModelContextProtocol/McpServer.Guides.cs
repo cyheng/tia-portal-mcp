@@ -11,9 +11,9 @@ namespace TiaMcpServer.ModelContextProtocol
     // errors — this tool hands them the verified rules right before they write code.
     public static partial class McpServer
     {
-        [McpServerTool(Name = "GetAuthoringGuide"), Description("[L0][Guide] Read verified authoring rules before writing SCL/LAD/DB/HMI. Topics: overview, workflow, scl, lad, db, hmi, errors. Read-only.")]
+        [McpServerTool(Name = "GetAuthoringGuide"), Description("[L0][Guide] Read verified authoring rules before writing SCL/LAD/DB/HMI or adding block comments/titles. Topics: overview, workflow, scl, lad, db, hmi, errors, comments. Read-only.")]
         public static ResponseMessage GetAuthoringGuide(
-            [Description("topic: overview | workflow | scl | lad | db | hmi | errors")] string topic)
+            [Description("topic: overview | workflow | scl | lad | db | hmi | errors | comments")] string topic)
         {
             var text = McpGuides.Topic(topic);
             if (text == null)
